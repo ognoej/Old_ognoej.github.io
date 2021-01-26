@@ -1,9 +1,9 @@
 ---
 layout: work
-title: Work
+title: About
 slug: /work
 items:
-  - title: 게임 개발
+  - title: 
     image:
       src: /assets/img/work/게임.png
       alt: water

@@ -6,7 +6,7 @@ profile_picture:
 ---
 
 <p>
-  코딩하는 빡태공의 블로그
+
 </p>
 
 <p>
