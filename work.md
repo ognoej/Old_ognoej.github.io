@@ -1,20 +1,14 @@
 ---
 layout: work
-title: About
+title: 
 slug: /work
 items:
   - title: 
     image:
-      src: /assets/img/work/게임.png
+      src: /assets/img/work/게임2.png
       alt: water
-    description: 게임을 개발하고 공부합니다
-  - title: 여행
-    image:
-      src: /assets/img/work/뱅기.jpg
-      alt: sand
-    description: 여행을 즐깁니다
+    description: <br><p>　　　　　　게임을 공부하고 여행을 좋아하는 나그네 이올시다
 ---
 
-코딩 & 게임 개발
 <br />
 <br />
