@@ -3,18 +3,18 @@ layout: work
 title: Work
 slug: /work
 items:
-  - title: My Interest 1
+  - title: 게임 개발
     image:
-      src: /assets/img/work/water.png
+      src: /assets/img/work/게임.png
       alt: water
-    description: Lorem ipsum dolor sit amet, consectetur adipiscing elit, sed do eiusmod tempor incididunt ut labore et dolore magna aliqua. Ut enim ad minim veniam, quis nostrud exercitation ullamco laboris nisi ut aliquip ex ea commodo consequat.
-  - title: My Interest 2
+    description: 게임을 개발하고 공부합니다
+  - title: 여행
     image:
-      src: /assets/img/work/sand.png
+      src: /assets/img/work/뱅기.jpg
       alt: sand
-    description: Lorem ipsum dolor sit amet, consectetur adipiscing elit, sed do eiusmod tempor incididunt ut labore et dolore magna aliqua. Ut enim ad minim veniam, quis nostrud exercitation ullamco laboris nisi ut aliquip ex ea commodo consequat. Duis aute irure dolor in reprehenderit in voluptate velit esse cillum dolore eu fugiat nulla pariatur.
+    description: 여행을 즐깁니다
 ---
 
-This is an example of a "Work" page, displaying your work, your interests, your projects.
+코딩 & 게임 개발
 <br />
 <br />
