@@ -13,9 +13,9 @@ header:
   pages:
     - name: Home
       slug: /
-    - name: Work
+    #- name: Work
     - name: Blog
-
+    #- name: DirectX
 footer:
   show_powered_by: true
   contact:
