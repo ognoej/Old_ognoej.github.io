@@ -1,6 +1,6 @@
 ---
 layout: blog
-title: 일지
+title: 　
 slug: /blog
 ---
 
