@@ -1,8 +1,7 @@
 ---
 layout: blog
-title: DirectX
+title: 
 slug: /blog
 ---
 
-Posting place
-<br />
+## DirectX
