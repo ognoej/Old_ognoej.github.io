@@ -1,6 +1,6 @@
 ---
 layout: post
-title:  "DX 기초"
+title:  "1. DX 기초"
 date:   2021-01-25 16:09:01 +0900
 categories: jekyll update
 ---

@@ -1,0 +1,190 @@
+---
+layout: post
+title:  "3. DirectX3D 초기화"
+date:   2021-01-29 00:09:01 +0900
+categories: jekyll update
+---
+#### Table of Contents
+  -　 [**초기화 단계**](#초기화-단계)<br />
+  1.　[**D3D Device 생성**](#1-d3d-device-생성)<br />
+  2.　[**Fence설정**](#2-fence설정)<br />
+  3.　[**4X MSAA지원 여부 점검**](#3-4x-msaa지원-여부-점검)<br />
+  4.　[**명령대기열 생성과 설정**](#4-명령대기열-생성과-설정)<br />
+  5.　[**Swap Chain 생성**](#5-swap-chain-생성)<br />
+  6.　[**서술자 힙 (View Heap) 생성**](#6-서술자-힙-view-heap-생성)<br />
+  7.　[**렌더 타겟뷰(RTV)생성**](#7-렌더-타겟뷰rtv생성)<br />
+  8.　[**뷰 포트 설정**](#8-뷰-포트-설정)<br />
+  9.　[**가위 직사각형(Scissor rectangle)설정**](#9-가위-직사각형scissor-rectangle설정)<br />
+
+<br />
+<br />
+**<span style="color:red"></span>**
+
+### **초기화 단계**
+D3D초기화 과정은 꽤 길지만, **<span style="color:red">프로그램 실행 시 한번만 해주면 된다</span>**.<br> 초기화는 다음과 같은 단계로 구성 된다
+```
+- D3D12CreateDevice를 사용해서 ID3D12Device를 생성한다.
+- ID3D12Fence 를 생성하고 View들의 크기를 얻는다.
+- 4X MSAA(MultiSampling Anti- Aliasing)을 지원하는지 점검
+- Command Queue와 Command Allocator , CommandList를 생성한다.
+- Swap Chain을 생성한다.
+- 각종 View들을 View Heap에 생성한다.
+- Back buffer 크기를 설정하고 Back Buffer에 대한 Render target view를 생성.
+- Depth-Stencil Buffer를 생성하고 그에 맞는 Depth-Stencil View를 생성한다.
+- View port와 사각형들을 설정한다.
+```
+<br />
+<br />
+<br />
+<br />
+
+### **1. D3D Device 생성**
+**<span style="color:red">D3D초기화는 Device생성으로 시작</span>**된다. Device는 디스플레이 어댑터 객체이다.
+Device는 자원이나 View , Command List등 다른 D3D 인터페이스 생성에 사용된다.
+
+그 다음 필요한 객체는 Graphic작업을 위한  DxgiFactory이다. 스왑체인같은 그래픽 객체는 DxGi변수이므로 factory에서 생성한다.
+
+<br />
+<br />
+<br />
+<br />
+
+### **2. Fence설정**
+　GPU와 CPU 동기화를 위한 울타리를 생성한다. 또한 View들의 크기도 얻어서 저장해둔다.
+
+<br />
+<br />
+<br />
+<br />
+
+### **3. 4X MSAA지원 여부 점검**
+
+　앞 장에서 설명한 멀티샘플링 기술 중 **<span style="color:red">4X MSAA(multisampling)</span>**를 주로 사용한다. 비교적 비용이 적으면서 화질이 많이 개선된다는 점 때문이다.<br>
+　Direct3D 11 이상을 지원하는 그래픽카드에서는 모두 4X MSAA를 지원한다.
+
+
+<br />
+<br />
+<br />
+<br />
+
+### **4. 명령대기열 생성과 설정**
+
+　Command Queue와 Command List, Command Allocator를 생성한다.
+
+
+<br />
+<br />
+<br />
+<br />
+
+
+### **5. Swap Chain 생성**
+　스왑 체인을 생성하기 위해서는 먼저 DXGI_SWAP_CHAIN_DESC 구조체에 멤버들을 생성하고자 하는 스왑체인에 맞게 설정해줘야 한다.
+
+　**<span style="color:red">SwapChain 구조체</span>**
+```
+typedef struct DXGI_SWAP_CHAIN_DESC
+{
+ DXGI_MODE_DESC BufferDesc; // 버퍼 해상도, 디스플레이 형식등을 다루는 버퍼
+ DXGI_SAMPLE_DESC SampleDesc; // 샘플러(다중표본화) 표본 개수와 품질 수준
+ DXGI_USAGE BufferUsage; //렌더 대상 선택하는곳
+                         (후면버퍼 DXGI_USAGE_RENDER_TARGET_OUTPUT을 지정함)
+ UNIT BufferCount; // 스왑체인 버퍼 갯수. 이중버퍼링에선 2를 넣으면된다.
+ HWND OutputWindow; // 렌더링 결과가 표시될 윈도우 핸들
+ Bool Windowed; // 창모드면 true, 전체화면이면 false
+ DXGI_SWAP_EFFECT swapEffect; // 그냥 DXGI_SWAP_EFFECT_FLIP_DISCARD
+ UNIT Flages; //추가 플래그들.
+ DXGI_SWAP_CHAIN_FLAG_ALLOW_MODE_SWITCH를 사용하면 전체화면으로 전활 될 때
+ 응용 프로그램 창의 현재 크기에 가장 맞는 디스플레이 모드를 선택함.
+ flase면 전체화면 될때 현재 데스크톱 디스플레이 모드를 사용함
+}
+```
+
+<br />
+<br />
+<br />
+<br />
+
+
+### **6. 서술자 힙 (View Heap) 생성**
+　ID3D12DescriptorHeap인터페이스로 생성한다. Swapchain에 설정된 버퍼 갯수만큼 렌더 타겟뷰와 하나의 뎁스 스탠실 뷰가 필요하다.<br>
+　**<span style="color:red">서술자 힙은 서술자 종류마다 각각 존재하여 서술자들을 관리한다</span>**.
+
+
+<br />
+<br />
+<br />
+<br />
+
+
+### **7. 렌더 타겟뷰(RTV)생성**
+　 렌더 대상(주로 후면 버퍼)을 가리키는 타켓뷰(서술자)를 생성한다.
+```
+ID3D12Device::CreateRenderTargetView(
+	ID3D12Resource *pResource,
+	const D3D12_RENDER_TARGET_VIEW_DESC *pDesc,
+	D3D12_CPU_DESCRIPTOR_HANDLE destDescriptor);
+```
+- pResource : 렌더 대상으로 사용할 자원을 가리키는 포인터. 보통 항상 후면 버퍼를 가리킴
+- pDesc : 렌더타겟 뷰를 서술하는 서술자를 가리키는 매개변수. 구체적인 자료형식을 지정해서 자원을 생성했으면 이 매개변수에 널포인터를 넣어도 됨. 그런 경우 이 메서드는 그 자원을 생성할 때 지정한 자료형식을 적용해서 그 자원의 첫 번째 밉맵 수준에 대한 뷰를 생성함. 밉맵은 후에 논의. 
+- DestDescriptor : 생성된 렌더타겟 뷰가 저장될 서술자의 핸들<br>
+```
+md3dDevice->
+CreateRenderTargetView(mSwapChainBuffer[i].Get(),nullptr,rtvHeapHandle);
+```
+- Device::CreateCommittedResources메서드는 자원을 생성하고 지정된 속성에 부합하는 힙에 그 자원을 맡긴다(Commit)
+
+* Heap Properties<br>
+자원 맡길 힙의 속성을 담은 구조체.<br>
+  - Default : 기본힙. 전적으로 GPU가 접근할 자원들이 담긴다. 뎁스 스탠실뷰가 대표적. 뎁스 스탠실은 CPU가 접근할 이유가 하나도 없으므로 default힙에 담긴다. 
+  - UpLoad : CPU에서 GPU로 올려야되는 자료들이 담긴 힙
+  - READBACK : CPU가 읽어야할 자원들이 담긴 힙
+
+**<span style="color:red">최적의 성능을 위해서는 자원들을 기본 힙(default heap)에서 많이 이동하면 안된다</span>**. 자료올리기 힙(Upload Heap)이나 다시 읽기 힙(READBACK Heap)에는 해당 기능이 필요할 때만 사용한다.
+
+뎁스스탠실 버퍼를 사용하기 위해서는 렌더타겟과 마찬가지로 뎁스스탠실 뷰가 필요하다.<br>
+뎁스스탠실 뷰 구조체: D3D12_RESOURCE_DESC (사실상 Dx12부터는 resource가 통합 자원으로 사용된다)
+
+
+<br />
+<br />
+<br />
+<br />
+
+
+### **8. 뷰 포트 설정**
+　보통 후면버퍼에 그림을 그리면 해당 윈도우 전체나 전체화면에 그림을 그린다. 하지만 사용자가 지정해서 해당 화면의 일부분에만 그림이 그려지게 할 수 있다. 이때 **<span style="color:red">장면을 그려 넣고자 하는 후면 버퍼의 부분 직사각형(subrectangle) 영역을 뷰포트(view port)</span>**라고 한다.
+
+- D3D12_VIEWPORT(뷰포트 구조체)<br>
+뷰포트 구조체에서 구조체 깊이도 설정할 수 있는데, 뷰포트 깊이를 0으로 설정하면 모든 물체가 깊이 0이 되어서 다른 장면들보다 앞에 나타나게 된다.
+
+뷰포트 구조체를 모두 설정한 후에 ID3D12CommandList::RSSetViewports메서드를 이용해서 뷰포트를 설정한다.<br>
+```ex) RSSetViewports(1,&vp);   => vp는 뷰포트 구조체```<br>
+여기서 1은 설정할 뷰포트들의 개수이다. 고급화면에서는 여러 개의 뷰포트가 필요할수 있다.
+CommandList재설정(Reset)하면 뷰포트도 재설정 해줘야한다.
+
+
+
+<br />
+<br />
+<br />
+<br />
+
+
+### **9. 가위 직사각형(Scissor rectangle)설정**
+　가위 직사각형은 특정 픽셀들을 컬링(culling)하는 용도로 쓰인다. 후면 버퍼를 기준으로 가위 직사각형을 정의, 설정하면 렌더링 시 시저 렉탱글 바깥 영역은 후면 버퍼에 래스터라이징 되지 않는다. 예를 들어 UI가 있는 부분을 Scissor rectangle로 설정하면 해당 UI뒤에 있는 3D공간에 대한 연산은 이루어지지 않게 되는 것이다.
+
+- D3D12_RECT(Scissor rectangle 구조체)<br>
+
+
+```CommandList::RSSetScissorRects   => (사각형 설정 매서드)```<br>
+
+하나의 렌더 타겟에 여러개의 가위 직사각형을 사용할 수는 없다.
+CommandList 리셋하면 가위직사각형도 재설정 해야한다.
+
+
+<br />
+<br />
+<br />
+<br />
