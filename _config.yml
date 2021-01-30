@@ -15,7 +15,7 @@ header:
       slug: /
     #- name: Work
     - name: Blog
-    #- name: DirectX
+   #- name: DirectX
 footer:
   show_powered_by: true
   contact:

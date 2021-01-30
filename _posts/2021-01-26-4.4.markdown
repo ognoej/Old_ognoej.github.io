@@ -1,0 +1,42 @@
+---
+layout: post
+title:  "4. 시간측정"
+date:   2021-01-29 01:40:01 +0900
+categories: jekyll update
+---
+#### Table of Contents
+  1.　[타이머](#1-타이머)<br />
+<br />
+<br />
+**<span style="color:red"></span>**
+
+### **1. 타이머**
+　게임에서 오브젝트의 애니메이션은 필수 요소이다. 오브젝트가 애니메이션을 수행하려면 프레임마다 일정한 시간이 요구되는데 특히 **<span style="color:red">프레임간 경과시간(Elapsed time)을 정확하게 측정할 수 있어야 한다</span>**. 프레임이 높을 경우 프레임간 시간이 짧으므로 정교한 타이머가 필요하다.
+
+* 성능 타이머(Performance counter)<br>
+  윈도우가 제공하는 정교한 타이머이며 Performance counter라고도 부른다. Windows.h에 들어있다.<br><br>
+
+
+***성능타이머 사용예시***
+
+```
+__int64 currTime;
+QueryPerformanceCounter((LARGE_INTERGER*)&currTime);
+위 함수를 통해 현재 시간 값을 64비트 정수로 돌려준다.
+
+__int64 countsPerSec;
+QueryPerformanceFrequency((LARGE_INTERGER*)&countsPerSec);
+초 단위 시간을 얻으려면 Frequency 함수를 이용해서 주파수를 얻고
+주파수의 역수 취해서 틱당 초 를 얻는다.
+
+mSecoundsPerCount = 1.0 / countsPerSec;
+```
+
+- 두 Count의 차이를 정확하게 측정해야 원하는 시간차 Elpased time을 얻을 수 있다.
+
+- 다중 프로세서의 경우 이 함수가 어떤 프로세서에서 실행되는지에 따라 결과가 달라져서 안된다. 하지만 하드웨어 버그로 다른 값이 나올 수 있다. 따라서 SetThreadAffinityMask함수를 적절히 사용해서 응용 프로그램 주 스레드가 다른 프로세서로 전환되는 걸 방지시켜야 한다.
+
+- Timer 클래스는 프레임마다 델타T (현재 프레임시간- 지난 프레임시간)을 업데이트에 넘겨준다.
+업데이트에서는 이 시간을 활용해서 각종 시간처리를 한다.
+
+- 게임 시작 후 현재까지 흐른 TotalTime을 기록한 변수도 유용하게 사용된다. TotalTime은 게임이 일시 정지 되었을 때에는 누적되지않게 구성해야 사용이 편리해짐을 유의하자.
