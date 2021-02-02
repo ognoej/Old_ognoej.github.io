@@ -1,0 +1,364 @@
+---
+layout: post
+title:  "6. D3D에서의 실제 구현"
+date:   2021-02-02 01:09:01 +0900
+categories: jekyll update
+---
+#### Table of Contents
+1.　[**정점 형식 정의와 레이아웃(Layout)**](#1-정점-형식-정의와-레이아웃layout)<br>
+2.　[**정점 버퍼(Vertex Buffer)와 정점 쉐이더(Vertex Shader)**](#2-정점-버퍼vertex-buffer와-정점-쉐이더vertex-shader)<br />
+3.　[**픽셀 쉐이더**](#3-픽셀-쉐이더)<br />
+4.　[**상수 버퍼 (Const Buffer)**](#4-상수-버퍼-const-buffer)<br>
+5.　[**루트서명과 서술자 테이블**](#5-루트서명과-서술자-테이블)<br>
+6.　[**셰이더의 컴파일**](#6-셰이더의-컴파일)<br>
+7.　[**래스터라이징 단계**](#7-래스터라이징-단계)<br>
+8.　[**파이프라인 객체**](#8-파이프라인-객체)<br>
+9.　[**기하구조 보조 구조체**](#9-기하구조-보조-구조체)<br><br>
+<br />
+<br />
+**<span style="color:red"></span>**
+
+### **1. 정점 형식 정의와 레이아웃(Layout)**
+정점정보에 위치 이외에 정점 정보(텍스쳐나 색상, 법선벡터)등을 담을 수 있다는 것을 배웠다.<br>
+**<span style="color:red">정점 구조체를 사용자 임의로 정의하고 나면 Dx에 해당 구조체의 성분이 무엇을 의미하는지 알려줘야한다</span>**. 이 과정을 Layout description이라고 한다,.
+
+Ex)
+``` 
+struct Vertex        // 정점 구조체 예시
+{
+	XMFloat3	Pos;     // 위치
+	XMFloat3	Normal;  // 법선벡터
+	XMFloat3	Tex0;    // 텍스쳐1 좌표
+	XMFloat3	Tex1;    // 텍스쳐2 좌표
+}
+
+D3D12_INPUT_ELEMENT_DESC vertexDesc[] =      // 정점 쉐이더 레이아웃 예시
+{
+	{ “ POSITION”, 0, DXGI_FORMAT_R32G32B32_FLOAT, 0 , 0,
+		D3D12_INPUT_CLASSIFICATION_PER_VERTEX_DATA, 0},
+	{ “ NORMAL”, 0, DXGI_FORMAT_R32G32B32_FLOAT, 0 , 12,
+		D3D12_INPUT_CLASSIFICATION_PER_VERTEX_DATA, 0},
+	{ “ TEXCOORD”, 0, DXGI_FORMAT_R32G32_FLOAT, 0 , 24,
+		D3D12_INPUT_CLASSIFICATION_PER_VERTEX_DATA, 0},
+	{ “ TEXCOORD”, 1, DXGI_FORMAT_R32G32_FLOAT, 0 , 32,
+		D3D12_INPUT_CLASSIFICATION_PER_VERTEX_DATA, 0},
+};
+
+VertexOut VS(float3 iPos : POSITION,
+		float3 iNormal : NORMAL,
+		float2 iTex0 : TEXCOORD0,
+		float2 iTex1 : TEXCOORD1)
+
+```
+- 레이아웃 구조체 첫 인자는 semantic(“이름”)으로 , 정점셰이더에서 이 이름으로 해당 값을 처리하기 때문에 유효한 이름을 사용해야 한다. 이 시맨틱은 정점셰이더 서명과 구조체 성분을 대응시키는 역할을 한다.
+
+- 두번째 성분은 Semantic index로, 하나의 정점이 여러개 텍스쳐 좌표를 가리킬 수 있는데, 이 때 텍스쳐성분을 간편하게 인덱스로 처리할 수 있도록 색인으로 분류시켜는 인자이다.
+
+- 세 번째 성분은 해당 정점 성분의 자료형을 알려주는 역할을 한다. 위 사용된 것은 32비트 3차원 부동소수점 벡터 이다.
+
+- 네번째 인자는 Input slot으로, 이 성분의 자료를 가져올 정점 버퍼 슬롯의 색인이다.
+여러개의 입력 슬롯을 사용할 때 구분지어서 사용된다.
+
+- 다섯번째 인자는 AlignedByteOffset으로 해당 인자가 구조체 몇번째 바이트부터 자리잡고 있는 지 알려주는 색인이다. 
+  
+- 여섯번째 인자는 InputSloatClass로 고급 기법인 인스턴싱(복사본 생성)을 할 때 사용된다.
+  
+- 일곱번째는 InstanceDatasTepRate로 인스턴싱에 사용된다.
+
+<br />
+<br />
+<br>
+<br>
+
+### **2. 정점 버퍼(Vertex Buffer)와 정점 쉐이더(Vertex Shader)**
+- GPU가 정점 배열에 접근하려면 그 정점 배열을 버퍼(Buffer)라고 부르는 GPU자원에 넣어두어야 한다.
+정점 버퍼를 생성하려면 다른 자원과 마찬가지로 버퍼 자원을 서술하는 서술자 구조체를 채우고, Create매서드로 생성하면된다.
+
+- 물체 하나당 하나의 정점버퍼(VB)와 하나의 정점 인덱스 버퍼(IB)가 붙는다.
+게임에서 여러 물체를 관리해야 하므로 정점버퍼와 인덱스 버퍼가 여러개면 수시로 버퍼가 바뀌는 변환이 일어나야 할 것이다. **<span style="color:red">버퍼 변환은 꽤 비용이 큰 작업이므로 최대한 줄이는 것이 최적화를 위한 길</span>**이다. 따라서 물체 버퍼 정보를 저장할 때, 하나의 전역 정점버퍼와 전역 인덱스 버퍼로 합치는 방법을 사용하여 버퍼 전환에 따른 API 추가 비용을 피한다. 
+
+- 하나의 버퍼로 합치는 과정에서 인덱스버퍼가 꼬이는 과정을 해결해 주어야 한다. 인덱스를 추가할 때마다 DrawIndexedInstance매서드로 인덱스 범위를 불러와 덧붙이는 작업으로 인덱스 버퍼가 꼬이는 것을 해결할 수 있다.
+
+- **<span style="color:red">정적인 모델들(프레임마다 변하지 않는 모델)을 불러올 때는 최적의 성능을 위해 해당 모델 정점 버퍼들을 기본힙(HEAP_DEFAULT)에 넣는다</span>**. 정적 구조물들은 CPU 계산(변환 행렬 계산)이 초기화 이후에 필요하지 않고 GPU만 접근해서 그림을 그리기 때문에 기본힙에 넣어도 무방하다.
+
+- 정점 버퍼 수정하려면 업로드 버퍼를 생성해서 CPU에서 정점 자료를 업로드 버퍼에 복사 -> 업로드 버퍼에서 정점 버퍼로 복사 하여 수정한다.<br><br><br>
+
+***<span style="color:blue">TIP</span>***<br>
+DX11에서는 자원마다 인터페이스가 달랐다. Dx11Buffer , Dx11Texture2D 등등 ..<br>
+DX12부터는 모든 자원의 인터페이스가 ID3D12Resource로 통합되고 내부변수인 DIMENSION필드로 해당 자원의 특성을 정의할 수 있게 되어 깔끔해졌다.<br><br><br>
+<br><br><br>
+
+
+#### **예제 정점 쉐이더**
+
+쉐이더는 HLSL(high level shading language)이라는 쉐이더 전용 언어를 이용해서 작성한다.
+HLSL은 C++과 문법이 비슷하여 익히기 쉽다. 확장자는 HLSL이다.<br><br>
+
+
+**ex) 픽셀 쉐이더 내부 예시** <br>
+  
+``` 
+struct Vertex    // 색정보를 가진 정점 구조체 예시
+{
+	XMFLOAT3	Pos;
+	XMFLOAT4	Color;
+};
+
+
+// 쉐이더 파일(.hlsl) 내부
+void	VS(   float3	iPosL	: POSITION,     // 입력 정점 내부 pos 변수
+	      float4	iCOlor	: COLOR,        // 입력 정점 내부 color 변수
+	      out float4 oPosH : SV_POSITION,   // 출력될 정점의 pos 변수
+	      out float4 oColor : COLOR)        // 출력될 정점의 color 변수
+{
+         //입력정점에 월드행렬 곱해서 출력
+	oPosH = mul(flaot4(iPosL, 1.0f), gWorldViewProj); 
+	oColor = iColor;
+}
+```
+
+- POSITION와 COLOR는 앞의 레이아웃에서 정의한 Semantic이다.
+- 쉐이더 언어에서는 참조나 포인터가 없기 때문에 매개변수의 out 키워드로 출력값을 설정한다.
+- 출력이 여러개일 경우 구조체에 담아 출력할 수 있다.
+- 여기서 주의해야할 것은 뷰포트전환까지 끝낸 위치값 SV_POSITION의 앞의 SV_이다. SV는 System value라는 의미로 해당 성분이 위치 값을 가지고 있다는 것을 의미하므로 꼭 위치 성분출력에는 SV를 붙여야한다.
+- Color는 정점에서 처리 안하면 아무이름으로 내보내도 상관없다.
+- 쉐이더에서 곱한 월드행렬 **<span style="color:red">gWorldViewProj는 파이프라인에 부착된 상수버퍼에 들어있는 값</span>**이다.
+- 여기서 mul은 HLSL내부의 함수로 벡터 대 행렬 곱셈을 수행한다.
+
+<br>
+
+<br>
+<br>
+
+쉐이더 내부에서 입출력 값을 구조체로 묶어서 입출력을 간단하게 만들 수도 있다.<br><br>
+**ex) 쉐이더 내부(.hlsl)**<br>
+```
+struct VertexIn
+{
+	float3 PosL : POSITION;
+	float4 Color : COLOR;
+}
+struct VertexOut
+{
+	float4 PosL : POSITION;
+	float4 Color : COLOR;
+}
+VertexOut VS(VertexIn vin)
+{
+	VertexOut	vout;
+	~~
+	return vout;
+}
+```
+<br><br><br>
+
+**주의점**
+- 지오메트리 쉐이더(삼각형 사각형으로 확장)를 파이프라인에서 사용하지 않는다면 **<span style="color:red">정점 쉐이더에서 위치정보의 출력값은 꼭 뷰포트 변환까지 마친 SV_값</span>**이 어야한다. 지오메트리 쉐이더가 없으면 GPU가 정점 쉐이더 끝난 정점 값을 VDC상의 [-1,1]의 점으로 보기 때문이다.
+- 지오메트리 쉐이더가 파이프라인에 부착되어있으면 지오메트리 쉐이더에서 뷰포트 전환이 이루어진다.
+- 사용자는 투영행렬 곱하는것까지만 해주면 된다. 원근 나누기는 하드웨어가 수행하는 작업이므로  하드웨어가 NDC로 보내준다.
+- Vertex Shader가 요구하는 입력값을 정점 레이아웃이 충족시키지 못할 경우에는 오류가 발생하지만, 정점 구조체가 추가정보를 담고 있는 것은 허용된다.
+
+<br>
+<br>
+<br>
+<br>
+
+### **3. 픽셀 쉐이더**
+정점 쉐이더를 거친 정점구조체는 래스터 단계에서 삼각형 픽셀들을 따라 보간되며, 보간된 결과가 픽셸 쉐이더에 입력값으로 들어간다.<br>
+
+픽셀 쉐이더의 주 임무는 주어진 입력으로 픽셀 단편의 색상을 계산하는 것이다.
+- Pixel Segment (픽셀 단편) <br> : 후면 버퍼의 한 픽셀에 최종 선택될 여러 후보 픽셀
+<br>
+- Early -Z rejection  <br> : 하드웨어 최적화 기법으로 사용되는 기법이다. 픽셸 쉐이더에 도달하기 전에 깊이 컬링 될 것이 분명한 픽셀 단편들을 픽셀 쉐이더로 보내지 않고 제거하는 기법이다. 픽셀 쉐이더에서 깊이 수정을 하는 작업을 구현하면 물론 사용하지 못한다.
+<br>
+<br>
+
+**ex) 픽셀 쉐이더 예시**<br>
+```
+struct VertexIn
+{
+	float3 PosL : POSITION;
+	float4 Color : COLOR;
+}
+struct VertexOut
+{
+	float4 PosL : POSITION;
+	float4 Color : COLOR;
+}
+VertexOut VS(VertexIn vin)
+{
+	VertexOut	vout;
+	~~
+	return vout;
+}
+
+// VS에서 출력된 VertexOut을 SV입력으로 받는다.
+float4 PS(VertexOut pin) : SV_Target  
+{
+	return pin.Color;
+}
+```
+
+- 픽셀 쉐이더는 하나의 정점으로 색상값 하나를 출력한다.
+- 픽셀 쉐이더의 입력은 정점 쉐이더의 출력과 일치해야함을 주의한다
+- SV_Target의 의미는 픽셀 쉐이더의 반환값이 Render Target의 형식과 일치해야 함을 뜻한다,
+
+
+<br />
+<br />
+<br>
+<br>
+
+### **4. 상수 버퍼 (Const Buffer)**
+- **<span style="color:red">상수버퍼는</span>** 일반적으로 한 점이 Local 좌표에서 CDB로 변환하는데 쓰이는 World행렬,View행렬,Projection행렬을 하나로 결합한 **<span style="color:red">WorldViewProj 행렬을 포함</span>**한다. 변환행렬 전반을 담고 있다고 봐도 무방하다.
+- 상수버퍼는 물체가 계속 움직이므로 **<span style="color:red">프레임마다 갱신</span>**해줘야한다.
+- 변환행렬은 CPU에서 작업하므로, 상수버퍼는 Default 힙이 아니라 **<span style="color:red">Upload 힙에 만들어야한다</span>**. 그래야 CPU가 버퍼의 내용을 갱신할 수 있다.
+- 상수버퍼에는 특별한 요구조건이 있다. **<span style="color:red">크기가 반드시 최소 하드웨어 할당크기(256바이트)의 배수</span>**여야한다는 것
+- 상수버퍼는 보통 물체마다 하나씩 가지고 있으므로 여러개의 상수버퍼가 처리된다.
+- 상수 버퍼는 여러개가 존재하므로 하나로 묶은 **<span style="color:red">상수버퍼 배열을 생성해서 관리</span>**한다. 또한 상수 버퍼 뷰를 파이프라인에 묶어 어떤 물체를 가리키는 상수버퍼인지를 관리하게 된다.
+<br><br>
+
+**ex) 상수버퍼 생성**
+```
+         //상수버퍼 구조체
+         struct ObjectConstants
+         {
+            DirectX::XMFLOAT4X4 WorldViewProj = MathHelper::Identity4X4();
+         }
+
+
+         //업로드 상수버퍼 배열 Comptr
+	ComPtr<ID3D12Resource> mUploadCBuffer;
+
+         //구조체 사이즈
+         UNIT elementByteSize = d3dUtil::CalcConstantBufferByteSize(sizeof(ObjectConstants));
+
+	device->CreateCommittedResource(
+	&CD3DX12_HEAP_PROPERTIES(D3D12_HEAP_TYPE_UPLOAD),
+	D3D12_HEAP_FLAG_NONE,
+	&CD3DX12_RESOURCE_DESC::Buffer(mElementsByteSize*NumElements),
+	D3D12_RESOURCE_STATE_GENERIC_READ,
+	nullptr,
+	IID_PPV_ARGS(&mUploadCBUffer));
+```
+- mUploadCBuffer는 ObjectConstants 형식의 상수버퍼들의 배열을 담는 버퍼이다. 해당 **<span style="color:red">버퍼배열 mUploadCBuffer 자체를 상수버퍼라고 보기도한다</span>**.
+- 상수버퍼 256으로 채움은 하드웨어에서 암묵적으로 일어나므로 명시적으로 해줄 필요는 없다.
+- 상수버퍼를 업로드 힙에 올렸으므로 CPU에서는 프레임마다 상수버퍼에 접근해서 갱신할 수 있게 된다.
+상수버퍼를 수정하려면 먼저 상수버퍼를 가리키는 포인터를 Comptr내부 Map매서드를 이용해서 받아와야한다.<br>
+- **<span style="color:red">갱신 끝나면 Unmap</span>**으로 해제해줘야한다.<br>
+<br>
+
+**Ex) 상수 버퍼 갱신 예시**
+```
+// 상수버퍼배열(mUploadBuffer)에서 갱신하려는 상수버퍼 불러오기
+ComPtr<ID3D12Resource> mUploadBuffer;
+BYTE * mMappedData = nullptr;
+mUploadBuffer->Map(0, nullptr,reinterpret_cast<void**>(&mMappedData));
+
+... (갱신작업)
+
+// 갱신 완료 후 Unmap해주기
+mUploadBuffer->Unmap(0,nullptr);
+mMappedData = nullptr;
+```
+
+- 상수버퍼 갱신 시 물체가 이동,회전,스케일이 변하면 월드행렬이, 카메라가 움직이면 시야행렬이, 창의 크기가 변하면 투영행렬이 변하게 된다.
+
+<br><br>
+
+#### **상수버퍼 뷰**
+- 마찬가지로 상수버퍼를 파이프라인에 묶기 위해서는 상수버퍼 뷰가 필요하다.
+- 상수버퍼뷰의 특징은 매개변수에 DESCRIPTOR_HEAP_FLAG_SHADER_VISIBLE이라는 쉐이더가 접근 가능하다는 플래그가 지정된다는 점이다.
+- **<span style="color:red">상수버퍼 뷰도 반드시 256의 배수여야 오류가 안난다</span>**.
+
+<br />
+<br />
+<br>
+<br>
+
+### **5. 루트서명과 서술자 테이블**
+- 쉐이더 프로그램은 특정 자료들, 예를들어 상수버퍼 같은 것들이 하나의 레지스터 슬롯에 묶여있다고 생각한다. 셰이더 프로그램들은 그 레지스터를 통해 자료에 접근한다.
+- 루드 서명(Root Signature)은 그리기 호출 전에 렌더링 파이프라인에 묶여야 하는 자원들이 무엇이고 어떤 레지스터들에 대응되는지를 정의한다.
+- 루트 서명은 셰이더들과 호환되어야한다.
+- 루트서명은 최대한 작게 만들고 한프레임 안에서 대한 변경이 적어야한다. 
+- 루트서명이 변경되면 모든 바인딩이 사라진다. 새로운 루트서명 자원을 파이프라인에 다시 묶어야함
+
+<br />
+<br />
+<br>
+<br>
+
+### **6. 셰이더의 컴파일**
+- D3D에서 쉐이더프로그램은 바이트 코드로 컴파일 되어야한다. 
+- D3DCompileFromFile매서드를 이용해 실행시점에서 셰이더를 컴파일 할 수 있다.
+- 셰이더를 오프라인에서 컴파일 할 수도 있다.(빌드과정 또는 파이프라인 공정에서)
+<br><br><br>
+
+　　***<span style="color:blue">tip</span>*** 오프라인 컴파일의 장점<br>
+- 복잡한 셰이더는 컴파일이 오래걸린다. **<span style="color:red">오프라인에서 쉐이더를 컴파일하면 Loading이 빨라진다</span>**.
+- 셰이더 컴파일 오류는 빌드과정에서 일찍 점검하는 것이 편하다.
+- Windows8 스토어 앱은 반드시 오프라인 컴파일을 사용해야한다.
+- 컴파일된 셰이더를 담는 확장자는 **<span style="color:red">.cso(compiled shader object)</span>**를 사용한다.
+- 오프라인 컴파일된 cso를 사용하면 D3DCompileFromFile 매서드를 사용하지 않아도된다.
+- 대신 LoadBinary같은 매서드를 만들어 cso바이트 코드를 프로그램에 적재시켜야한다.
+<br><br>
+
+#### **6.1. 어셈블리 코드 생성**
+- 실행시 /Fc옵션을 주어 어셈블리 코드를 생성할 수 있다.
+- 쉐이더의 어셈블리 코드를 출력해서 쉐이더 명령 갯수를 확인하거나 쉐이더 코드 종류를 살펴볼 수 있다.
+- 어셈블리 코드는 매우 로우레벨로 평탄화 작업 시킨 코드이므로 대부분의 조건문이 평이문으로 바뀐다.
+- 어셈블리를 살펴보면 쉐이더를 파악하는데 도움이 된다.
+<br><br>
+
+#### **6.2. Visual Studio 내장 오프라인 셰이더 컴파일**
+- VS2015부터는 내장 기능으로 HLSL의 오프라인 컴파일을 지원한다
+- 하지만 하나의 셰이더당 하나의 .cso파일만 가능하기 떄문에 하나의 파일에 정점과 픽셀 셰이더를 같이 둘 수 없다.
+
+
+<br />
+<br />
+<br>
+<br>
+<br />
+<br />
+<br>
+<br>
+### **7. 래스터라이징 단계**
+- 많은 파이프라인 영역이 프로그래머블 해졌지만 설정만 가능한 곳이 있다. 바로 래스터라이징 단계이다.
+- **<span style="color:red">래스터라이징 구조체에 설정을 입력하는 것만 가능</span>**하다.
+- 나머지 작업은 하드웨어가 처리해준다.
+
+<br />
+<br />
+<br>
+<br>
+<br />
+<br />
+<br>
+<br>
+### **8. 파이프라인 객체**
+- DX 에서는 각각 단계의 객체들을 실제로 사용하기 위해 파이프라인을 생성해 각 단계를 한 과정으로 묶는다.
+- 파이프라인 구조체를 통해 설정을 정하고 생성하면 된다.
+- D3D12_GraPHICS_PIPELINE_STATE_DESC 구조체로 ID3D12PipelineState 인터페이스를 생성하면된다.
+- 여기서는 컴파일된 VS와 PS가 필요하므로 미리 컴파일된 바이트 코드를 준비해야한다.
+
+
+<br />
+<br />
+<br><br />
+<br />
+<br>
+<br>
+<br>
+
+### **9. 기하구조 보조 구조체**
+- 선택(Picking)이나 충돌 감지를 위해서는 CPU가 모델에 접근하기 용이해야 한다.
+- 기하구조 보조 구조체는 정점 자료와 인덱스자료를 시스템 메모리에 유지하게 도와줘서 CPU가 쉽게 접근할 수 있도록 만든다.
+- 참조자료에 해당 함수 MeshGeometry를 참고해라
+<br />
+<br />
+<br>
+<br><br />
+<br />
+<br>
+<br>

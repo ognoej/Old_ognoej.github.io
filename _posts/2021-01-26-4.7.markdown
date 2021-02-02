@@ -1,6 +1,6 @@
 ---
 layout: post
-title:  "5-2 정점쉐이더(Vertex shader)단"
+title:  "5-2. 정점쉐이더(Vertex shader)"
 date:   2021-02-02 01:09:01 +0900
 categories: jekyll update
 ---

@@ -1,6 +1,6 @@
 ---
 layout: post
-title:  "5-1 입력조립기(Input Assembler)단"
+title:  "5-1. 입력조립기(Input Assembler)"
 date:   2021-02-02 01:09:01 +0900
 categories: jekyll update
 ---
@@ -21,7 +21,7 @@ categories: jekyll update
 
 ### **입력조립기 단계**
 
- 입력조립기단에서는 메모리에서 정점정보를 읽어서 Index를 기반으로 정점을 기본 단위(삼각형 점 선분)으로 조립한다.
+ 　입력조립기 단에서는 메모리에서 정점정보를 읽어서 Index를 기반으로 정점을 기본 단위(삼각형 점 선분)으로 조립한다.
 
 <br />
 <br />
