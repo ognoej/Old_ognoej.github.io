@@ -1,0 +1,464 @@
+---
+layout: post
+title:  "7. D3D 그리기 연산"
+date:   2021-02-03 01:09:01 +0900
+categories: jekyll update
+---
+#### Table of Contents
+1.　[**프레임 자원(Frame Resource)**](#1-프레임-자원frame-resource)<br><br>
+2.　[**렌더 항목(Render Items)**](#2-렌더-항목render-items)<br /><br>
+3.　[**패스 상수버퍼(Pass Const Buffer)**](#3-패스-상수버퍼pass-const-buffer)<br /><br>
+4.　[**도형 기하 구조**](#4-도형-기하-구조)<br>
+　　4.1. [**육면체 기하 구조**](#41-육면체-기하-구조)<br>
+　　4.2. [**원기둥 기하 구조**](#42-원기둥-기하-구조)<br>
+　　4.3. [**구 기하 구조**](#43-구-기하-구조)<br>
+<br />
+<br />
+**<span style="color:red"></span>**
+
+### **1. 프레임 자원(Frame Resource)**
+- 앞선 내용들에서 공부했듯, CPU와 GPU는 병렬로 움직이며 최적의 성능을 위해서는 끊임없이 작동해야한다. 하지만 우리는 GPU가 명령대기열을 처리하기 전에 CPU가 명령할당자를 재설정하거나, 그리기를 마치기 전에 상수버퍼를 갱신해서 다른 자료를 참조하는 것을 방지하기 위해 프레임마다 FlushCommandQueue를 호출해서 CPU와 GPU동기화를 시켜주었다. 하지만 이렇게 프레임마다 동기화 작업을 진행시키는 것은 매우 비효율적이다.(두 가지 중 하나는 대기하는 상황이 필연적으로 발생하므로)
+- 이 문제를 해결하기 위해 CPU가 프레임마다 갱신해야 하는 자료를 어레이 형식으로 관리하게되며 이를 프레임 자원(Frame Resource)라고 부른다.
+- 프레임 자원은 응용프로그램마다 필요한 내용(프레임마다 변화가 필요한 부분: 예를들어 상수버퍼, 등)을 적절하게 넣어서 사용자가 작성하는 구조체이다.
+- 3개의 프레임 자원을 가용한다고 하면 CPU는 GPU가 처리하고 있는 다음 원소에 접근해서 명령을 제출하고 다 처리하면 또 다음으로 넘어가서 대기하게 된다.
+- 이 방법이 대기를 완전하게 없앨 수 있는 것은 아니나, 어느 한쪽이 끊임없이 일하는 구조로 만들 수는 있다. 그래픽 카드가 최대한 일을 해야하는 게임 같은 경우에는 CPU가 프레임동안 원소에 모두 접근 후 GPU가 끊임없이 일을 할 동안 게임 인공지능 등 다른 부분에서 일하도록 하는 것이 바람직한 구성이다.
+- 한마디로 요약하자면 **<span style="color:red">프레임을 여러개 관리해서, 명령대기열을 프레임마다 초기화 하지 않고 다음 프레임의 연산 내용을 씨피유가 빠르게 먼저 다 채워놓는 작업</span>**을 만드는 것이라고 할 수 있다.
+- 프레임 자원에는 프레임마다 변화하는 사항만 체크해서 업데이트해주면 된다.
+<br><br><br>
+
+**ex) 프레임 구조체 이용한 상수버퍼 업데이트**
+```
+void update(timer gt)
+{
+	mCurrentFrameResourceIndex = (mCurrentFrameResourceIndex + 1) % NumFrameResources;
+	mCurrentFrameResource = mFrameResource[mCurrFrameResourcesIndex];
+
+	if(mCurrFrameResource->Fence != 0 &&
+			mCommandQueue->GetLastCompletedFence()<mFrameResource->Fence)
+			{
+				HANDLE	eventHandle = CreateEventEx(nullptr, false, false, EVENT_ALL_ACEESS);
+				ThrowIfFailed(mCommandQueue->SetEventOnFenceCompletion(
+					mCurrFrameResource->Fence,evnetHandle));
+					waitForSingleObject(eventHandle, INFINITE);
+					CloseHandle(eventHandle);
+				
+				// {...} // 받아온 상수버퍼 CurrFrameResource 갱신
+			}
+			반복
+}
+
+```
+
+
+<br />
+<br />
+<br>
+<br>
+
+### **2. 렌더 항목(Render Items)**
+- 한 프레임에 여러 물체가 있다면 그림을 그리는 데 필요한 Vertex 버퍼와 Index 버퍼, 물체의 상수버퍼, 도형 종류 설정, Instance 매개변수 지정등 파이프라인에 붙여야할 작업이 매우 복잡해질 수 있다.
+- 따라서 한 물체를 그리는 데 필요한 설정들을 캡슐화 해서 관리할 필요가 있다. 이 캡슐화된 구조체를 렌더 항목이라고 한다.
+- **<span style="color:red">렌더항목을 설정해 놓으면, 상수버퍼만 생성하여 복사본 생성(인스턴싱)을 편리</span>**하게 할 수 있다.
+<br><br>
+
+**ex) 렌더항목**
+```
+sturct RenderItem
+{
+
+	// 해당 물체의 월드좌표
+	XMFLOAT4X4 World = identity4x4();
+
+
+	// 오브젝트 상수버퍼 인덱스
+	UNIT ObjCBINdex = 0;
+
+	// 프레임에 변환여부가 있는지 체크하는 프레임 리소스 갯수변수
+	int NumFrameDirty = gNumFrameResources;
+
+	// 토폴로지
+	D3D12_PRIMITIVE_TOPOLOGY primitiveType = 삼각형;
+
+
+	// DrawIndexedInstanced 매개변수 (인덱스버퍼와 정점버퍼가 통합되어 있으므로 필요함.)
+	UNIT IndexCount = 0;
+	UNIT StartIndexLocation = 0;
+	int BaseVertexLocation = 0;
+
+}
+
+```
+- 최적화를 위해 같은 파이프라인 단계(PSO)를 사용하는 렌더항목끼리 묶어 놓는 코딩을 한다.
+
+
+
+
+
+<br><br><br>
+<br><br><br>
+
+
+### **3. 패스 상수버퍼(Pass Const Buffer)**
+- 이 버퍼는 하나의 렌더링 패스에서 **<span style="color:red">변하지 않는 상수 자료를 저장하는 상수버퍼</span>**라고 볼 수 있다.
+- 예를 들어 시점, 시야 , 투영, 렌더 타겟의 크기 등등이 속한다.
+- 프레임당 한번 설정된다.
+- 셰이더가 사용하는 상수버퍼는 5 미만으로 두는 것이 바람직하다.
+
+<br />
+<br />
+<br>
+<br>
+
+### **4. 도형 기하 구조**
+- 간단한 타원체, 구, 원기둥, 원뿔 등을 직접 정점정보를 저장해놓고 엔진에서 사용할 수 있다.
+- 이러한 도형들은 **<span style="color:red">주로 디버깅이나 게임에서 물리엔진 구현 시 접촉 여부, Rigid body 등을 설정하는 데 있어 유용</span>**하게 사용된다.
+<br><br>
+
+#### **4.1. 육면체 기하 구조**
+**ex) 육면체 기하 구조 예시 코드**
+```
+MeshData CreateBox(float width, float height, float depth, uint32 numSubdivisions)
+{
+    MeshData meshData;
+
+	// 정점 정보들을 생성한다.
+
+	Vertex v[24];
+
+	// 0.5로 놓는 이유는 원점을 중심에 놓고 그리기 위해서다.
+	float w2 = 0.5f*width;
+	float h2 = 0.5f*height;
+	float d2 = 0.5f*depth;
+    
+	// Fill in the front face vertex data.
+	v[0] = Vertex(-w2, -h2, -d2, 0.0f, 0.0f, -1.0f, 1.0f, 0.0f, 0.0f, 0.0f, 1.0f);
+	v[1] = Vertex(-w2, +h2, -d2, 0.0f, 0.0f, -1.0f, 1.0f, 0.0f, 0.0f, 0.0f, 0.0f);
+	v[2] = Vertex(+w2, +h2, -d2, 0.0f, 0.0f, -1.0f, 1.0f, 0.0f, 0.0f, 1.0f, 0.0f);
+	v[3] = Vertex(+w2, -h2, -d2, 0.0f, 0.0f, -1.0f, 1.0f, 0.0f, 0.0f, 1.0f, 1.0f);
+
+	// Fill in the back face vertex data.
+	v[4] = Vertex(-w2, -h2, +d2, 0.0f, 0.0f, 1.0f, -1.0f, 0.0f, 0.0f, 1.0f, 1.0f);
+	v[5] = Vertex(+w2, -h2, +d2, 0.0f, 0.0f, 1.0f, -1.0f, 0.0f, 0.0f, 0.0f, 1.0f);
+	v[6] = Vertex(+w2, +h2, +d2, 0.0f, 0.0f, 1.0f, -1.0f, 0.0f, 0.0f, 0.0f, 0.0f);
+	v[7] = Vertex(-w2, +h2, +d2, 0.0f, 0.0f, 1.0f, -1.0f, 0.0f, 0.0f, 1.0f, 0.0f);
+
+	// Fill in the top face vertex data.
+	v[8]  = Vertex(-w2, +h2, -d2, 0.0f, 1.0f, 0.0f, 1.0f, 0.0f, 0.0f, 0.0f, 1.0f);
+	v[9]  = Vertex(-w2, +h2, +d2, 0.0f, 1.0f, 0.0f, 1.0f, 0.0f, 0.0f, 0.0f, 0.0f);
+	v[10] = Vertex(+w2, +h2, +d2, 0.0f, 1.0f, 0.0f, 1.0f, 0.0f, 0.0f, 1.0f, 0.0f);
+	v[11] = Vertex(+w2, +h2, -d2, 0.0f, 1.0f, 0.0f, 1.0f, 0.0f, 0.0f, 1.0f, 1.0f);
+
+	// Fill in the bottom face vertex data.
+	v[12] = Vertex(-w2, -h2, -d2, 0.0f, -1.0f, 0.0f, -1.0f, 0.0f, 0.0f, 1.0f, 1.0f);
+	v[13] = Vertex(+w2, -h2, -d2, 0.0f, -1.0f, 0.0f, -1.0f, 0.0f, 0.0f, 0.0f, 1.0f);
+	v[14] = Vertex(+w2, -h2, +d2, 0.0f, -1.0f, 0.0f, -1.0f, 0.0f, 0.0f, 0.0f, 0.0f);
+	v[15] = Vertex(-w2, -h2, +d2, 0.0f, -1.0f, 0.0f, -1.0f, 0.0f, 0.0f, 1.0f, 0.0f);
+
+	// Fill in the left face vertex data.
+	v[16] = Vertex(-w2, -h2, +d2, -1.0f, 0.0f, 0.0f, 0.0f, 0.0f, -1.0f, 0.0f, 1.0f);
+	v[17] = Vertex(-w2, +h2, +d2, -1.0f, 0.0f, 0.0f, 0.0f, 0.0f, -1.0f, 0.0f, 0.0f);
+	v[18] = Vertex(-w2, +h2, -d2, -1.0f, 0.0f, 0.0f, 0.0f, 0.0f, -1.0f, 1.0f, 0.0f);
+	v[19] = Vertex(-w2, -h2, -d2, -1.0f, 0.0f, 0.0f, 0.0f, 0.0f, -1.0f, 1.0f, 1.0f);
+
+	// Fill in the right face vertex data.
+	v[20] = Vertex(+w2, -h2, -d2, 1.0f, 0.0f, 0.0f, 0.0f, 0.0f, 1.0f, 0.0f, 1.0f);
+	v[21] = Vertex(+w2, +h2, -d2, 1.0f, 0.0f, 0.0f, 0.0f, 0.0f, 1.0f, 0.0f, 0.0f);
+	v[22] = Vertex(+w2, +h2, +d2, 1.0f, 0.0f, 0.0f, 0.0f, 0.0f, 1.0f, 1.0f, 0.0f);
+	v[23] = Vertex(+w2, -h2, +d2, 1.0f, 0.0f, 0.0f, 0.0f, 0.0f, 1.0f, 1.0f, 1.0f);
+
+	meshData.Vertices.assign(&v[0], &v[24]);
+ 
+	//
+	// 정점 정보를 입력했으니 인덱스 정보를 또 입력해줘야한다.
+	// 위의 버텍스들로 삼각형 그리는 순서를 담고 있다.
+
+	uint32 i[36];
+
+	// Fill in the front face index data
+	i[0] = 0; i[1] = 1; i[2] = 2;
+	i[3] = 0; i[4] = 2; i[5] = 3;
+
+	// Fill in the back face index data
+	i[6] = 4; i[7]  = 5; i[8]  = 6;
+	i[9] = 4; i[10] = 6; i[11] = 7;
+
+	// Fill in the top face index data
+	i[12] = 8; i[13] =  9; i[14] = 10;
+	i[15] = 8; i[16] = 10; i[17] = 11;
+
+	// Fill in the bottom face index data
+	i[18] = 12; i[19] = 13; i[20] = 14;
+	i[21] = 12; i[22] = 14; i[23] = 15;
+
+	// Fill in the left face index data
+	i[24] = 16; i[25] = 17; i[26] = 18;
+	i[27] = 16; i[28] = 18; i[29] = 19;
+
+	// Fill in the right face index data
+	i[30] = 20; i[31] = 21; i[32] = 22;
+	i[33] = 20; i[34] = 22; i[35] = 23;
+
+	meshData.Indices32.assign(&i[0], &i[36]);
+
+    // 아래는 테셀레이션을 적용해 삼각형을 단위별로 3개씩 쪼개서 출력하는 함수이다.
+		// 정점 정보를 가진 메쉬데이터가 변경되어 출력된다.
+    numSubdivisions = std::min<uint32>(numSubdivisions, 6u);
+
+    for(uint32 i = 0; i < numSubdivisions; ++i)
+        Subdivide(meshData);
+
+    return meshData;
+}
+```
+<br><br>
+
+#### **4.2. 원기둥 기하 구조**
+- 원기둥은 옆면, 윗 뚜껑과 아랫 뚜껑, 세 부분을 따로 그려서 합쳐놓은 형태를 구성한다.
+- 뚜껑 조각과 옆면의 층 갯수가 밀집될 수록 부드러운 형태의 원기둥이 출력된다.
+
+
+**ex) 원기둥 기하 구조 예시 코드**
+```
+// 원기둥 옆면
+MeshData GeometryGenerator::CreateCylinder(float bottomRadius, float topRadius, float height, uint32 sliceCount, uint32 stackCount)
+{
+	// 메쉬데이터 스택을 생성.
+    MeshData meshData;
+
+	float stackHeight = height / stackCount;
+
+	// 스택 수를 설정한다.
+	float radiusStep = (topRadius - bottomRadius) / stackCount;
+
+	uint32 ringCount = stackCount+1;
+
+	// 각 스택별로 정점 정보를 생성함. (스택은 한 링으로 볼수있음)
+	for(uint32 i = 0; i < ringCount; ++i)
+	{
+		float y = -0.5f*height + i*stackHeight;
+		float r = bottomRadius + i*radiusStep;
+
+		// 한 개의 링을 가리키는 정점정보. XM_PI는 define값
+		float dTheta = 2.0f*XM_PI/sliceCount;
+		for(uint32 j = 0; j <= sliceCount; ++j)
+		{
+			Vertex vertex;
+
+			float c = cosf(j*dTheta);
+			float s = sinf(j*dTheta);
+
+			vertex.Position = XMFLOAT3(r*c, y, r*s);
+
+			vertex.TexC.x = (float)j/sliceCount;
+			vertex.TexC.y = 1.0f - (float)i/stackCount;
+
+			// 실린더의 길이
+			vertex.TangentU = XMFLOAT3(-s, 0.0f, c);
+
+			float dr = bottomRadius-topRadius;
+			XMFLOAT3 bitangent(dr*c, -height, dr*s);
+
+			XMVECTOR T = XMLoadFloat3(&vertex.TangentU);
+			XMVECTOR B = XMLoadFloat3(&bitangent);
+			XMVECTOR N = XMVector3Normalize(XMVector3Cross(T, B));
+			XMStoreFloat3(&vertex.Normal, N);
+
+			meshData.Vertices.push_back(vertex);
+		}
+	}
+
+	// 링마다 첫번째와 마지막 정점 주소를 저장해놓는다. 
+	// 텍스쳐 좌표가 서로 상이하기 때문이다.
+	uint32 ringVertexCount = sliceCount+1;
+
+	// 각 스택마다 인덱스 정보를 계산해서 저장한다.
+	for(uint32 i = 0; i < stackCount; ++i)
+	{
+		for(uint32 j = 0; j < sliceCount; ++j)
+		{
+			meshData.Indices32.push_back(i*ringVertexCount + j);
+			meshData.Indices32.push_back((i+1)*ringVertexCount + j);
+			meshData.Indices32.push_back((i+1)*ringVertexCount + j+1);
+
+			meshData.Indices32.push_back(i*ringVertexCount + j);
+			meshData.Indices32.push_back((i+1)*ringVertexCount + j+1);
+			meshData.Indices32.push_back(i*ringVertexCount + j+1);
+		}
+	}
+
+	// 윗뚜껑 정점정보를 제작하는 매서드
+	BuildCylinderTopCap(bottomRadius, topRadius, height, sliceCount, stackCount, meshData);
+	// 아랫뚜껑 정점정보를 제작하는 매서드
+	BuildCylinderBottomCap(bottomRadius, topRadius, height, sliceCount, stackCount, meshData);
+
+	// 옆면, 윗뚜껑, 아랫뚜껑 합쳐진 정점정보(meshData)를 출력
+    return meshData;
+}
+
+
+// 윗뚜껑 매서드
+void GeometryGenerator::BuildCylinderTopCap(float bottomRadius, float topRadius, float height,
+											uint32 sliceCount, uint32 stackCount, MeshData& meshData)
+{
+	uint32 baseIndex = (uint32)meshData.Vertices.size();
+
+	float y = 0.5f*height;
+	float dTheta = 2.0f*XM_PI/sliceCount;
+
+	// 텍스쳐 좌표저장을 위해 정점정보 복사
+	for(uint32 i = 0; i <= sliceCount; ++i)
+	{
+		float x = topRadius*cosf(i*dTheta);
+		float z = topRadius*sinf(i*dTheta);
+
+		// 텍스쳐좌표가 아랫 뚜껑의 텍스쳐좌표와 비례해야 텍스쳐 입힐때 
+		// 문제가 안생기므로 높이로 근사해줌
+		float u = x/height + 0.5f;
+		float v = z/height + 0.5f;
+
+		meshData.Vertices.push_back( Vertex(x, y, z, 0.0f, 1.0f, 0.0f, 1.0f, 0.0f, 0.0f, u, v) );
+	}
+
+	// 윗뚜껑 원점
+	meshData.Vertices.push_back( Vertex(0.0f, y, 0.0f, 0.0f, 1.0f, 0.0f, 1.0f, 0.0f, 0.0f, 0.5f, 0.5f) );
+
+	// 윗뚜껑 인덱스
+	uint32 centerIndex = (uint32)meshData.Vertices.size()-1;
+
+	for(uint32 i = 0; i < sliceCount; ++i)
+	{
+		meshData.Indices32.push_back(centerIndex);
+		meshData.Indices32.push_back(baseIndex + i+1);
+		meshData.Indices32.push_back(baseIndex + i);
+	}
+}
+
+// 아랫뚜껑
+void GeometryGenerator::BuildCylinderBottomCap(float bottomRadius, float topRadius, float height,
+											   uint32 sliceCount, uint32 stackCount, MeshData& meshData)
+{
+	uint32 baseIndex = (uint32)meshData.Vertices.size();
+	float y = -0.5f*height;
+
+	// vertices of ring
+	float dTheta = 2.0f*XM_PI/sliceCount;
+	for(uint32 i = 0; i <= sliceCount; ++i)
+	{
+		float x = bottomRadius*cosf(i*dTheta);
+		float z = bottomRadius*sinf(i*dTheta);
+
+		// 마찬가지로 높이로 근사해서 u,v 맞춰줌
+		float u = x/height + 0.5f;
+		float v = z/height + 0.5f;
+
+		meshData.Vertices.push_back( Vertex(x, y, z, 0.0f, -1.0f, 0.0f, 1.0f, 0.0f, 0.0f, u, v) );
+	}
+
+	meshData.Vertices.push_back( Vertex(0.0f, y, 0.0f, 0.0f, -1.0f, 0.0f, 1.0f, 0.0f, 0.0f, 0.5f, 0.5f) );
+
+	uint32 centerIndex = (uint32)meshData.Vertices.size()-1;
+
+	for(uint32 i = 0; i < sliceCount; ++i)
+	{
+		meshData.Indices32.push_back(centerIndex);
+		meshData.Indices32.push_back(baseIndex + i);
+		meshData.Indices32.push_back(baseIndex + i+1);
+	}
+}
+
+
+```
+
+<br />
+<br />
+<br>
+<br>
+
+
+#### **4.3. 구 기하 구조**
+- 구는 원기둥의 옆면과 비슷한 정점구조를 가지지만, 각 링의 반지름이 비선형으로 변한다는 차이점이 있다.
+- 하지만 윗 방법을 사용하면 만들어진 구체의 각 삼각형 구조가 일그러진 형태를 취하게 된다는 단점이 있다. 이 경우 텍스쳐를 입히는 과정에서 복잡한 연산이 필요하게 된다.
+- 따라서 각 삼각형이 정삼각형인 측지구(GeoSphere)방식으로 구체를 구성하는 것이 바람직하다.
+
+**ex) GeoSphere 기하 구조**
+```
+MeshData GeometryGenerator::CreateGeosphere(float radius, uint32 numSubdivisions)
+{
+    MeshData meshData;
+
+	// 꼭대기 지점 나눠질 삼각형 갯수 설정
+    numSubdivisions = std::min<uint32>(numSubdivisions, 6u);
+
+	// 구 테셀레이션 값 근사
+
+	const float X = 0.525731f; 
+	const float Z = 0.850651f;
+
+	XMFLOAT3 pos[12] = 
+	{
+		XMFLOAT3(-X, 0.0f, Z),  XMFLOAT3(X, 0.0f, Z),  
+		XMFLOAT3(-X, 0.0f, -Z), XMFLOAT3(X, 0.0f, -Z),    
+		XMFLOAT3(0.0f, Z, X),   XMFLOAT3(0.0f, Z, -X), 
+		XMFLOAT3(0.0f, -Z, X),  XMFLOAT3(0.0f, -Z, -X),    
+		XMFLOAT3(Z, X, 0.0f),   XMFLOAT3(-Z, X, 0.0f), 
+		XMFLOAT3(Z, -X, 0.0f),  XMFLOAT3(-Z, -X, 0.0f)
+	};
+
+    uint32 k[60] =
+	{
+		1,4,0,  4,9,0,  4,5,9,  8,5,4,  1,8,4,    
+		1,10,8, 10,3,8, 8,3,5,  3,2,5,  3,7,2,    
+		3,10,7, 10,6,7, 6,11,7, 6,0,11, 6,1,0, 
+		10,1,6, 11,0,9, 2,11,9, 5,2,9,  11,2,7 
+	};
+
+    meshData.Vertices.resize(12);
+    meshData.Indices32.assign(&k[0], &k[60]);
+
+	for(uint32 i = 0; i < 12; ++i)
+		meshData.Vertices[i].Position = pos[i];
+
+	// 삼각형 쪼개기
+	for(uint32 i = 0; i < numSubdivisions; ++i)
+		Subdivide(meshData);
+
+	// 정점 투영
+	for(uint32 i = 0; i < meshData.Vertices.size(); ++i)
+	{
+		
+		XMVECTOR n = XMVector3Normalize(XMLoadFloat3(&meshData.Vertices[i].Position));
+
+		XMVECTOR p = radius*n;
+
+		XMStoreFloat3(&meshData.Vertices[i].Position, p);
+		XMStoreFloat3(&meshData.Vertices[i].Normal, n);
+
+		// 텍스쳐 좌표 설정
+        float theta = atan2f(meshData.Vertices[i].Position.z, meshData.Vertices[i].Position.x);
+
+        // Put in [0, 2pi].
+        if(theta < 0.0f)
+            theta += XM_2PI;
+
+		float phi = acosf(meshData.Vertices[i].Position.y / radius);
+
+		meshData.Vertices[i].TexC.x = theta/XM_2PI;
+		meshData.Vertices[i].TexC.y = phi/XM_PI;
+
+		meshData.Vertices[i].TangentU.x = -radius*sinf(phi)*sinf(theta);
+		meshData.Vertices[i].TangentU.y = 0.0f;
+		meshData.Vertices[i].TangentU.z = +radius*sinf(phi)*cosf(theta);
+
+		XMVECTOR T = XMLoadFloat3(&meshData.Vertices[i].TangentU);
+		XMStoreFloat3(&meshData.Vertices[i].TangentU, XMVector3Normalize(T));
+	}
+
+    return meshData;
+}
+
+```
+<br />
+<br />
+<br />
+<br />
+

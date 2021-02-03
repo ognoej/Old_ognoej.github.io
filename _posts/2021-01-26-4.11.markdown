@@ -1,0 +1,231 @@
+---
+layout: post
+title:  "8. D3D 그리기 연산2"
+date:   2021-02-03 01:09:01 +0900
+categories: jekyll update
+---
+#### Table of Contents
+1.　[**지형**](#1-지형)<br>
+2.　[**파도와 동적 정점버퍼**](#2-파도와-동적-정점버퍼)<br /><br>
+<br />
+<br />
+**<span style="color:red"></span>**
+
+### **1. 지형**
+- 삼각형 격자 메시 하나를 생성한 후, 정점들의 높이를 적절히 조정해서 지형을 만들 수 있다.
+- 격자 정점정보 생성, 격자 색인정보 생성, y값 추출해서 높이 조절하는 순서로 지형을 만든다.<br><br><br>
+<br>
+
+**1-1 격자 정점 및 색인 생성**
+
+
+```
+MeshData GeometryGenerator::CreateGrid(float width, float depth, uint32 m, uint32 n)
+{
+    MeshData meshData;
+
+	uint32 vertexCount = m*n;
+	uint32 faceCount   = (m-1)*(n-1)*2;
+
+	float halfWidth = 0.5f*width;
+	float halfDepth = 0.5f*depth;
+
+	float dx = width / (n-1);
+	float dz = depth / (m-1);
+
+	float du = 1.0f / (n-1);
+	float dv = 1.0f / (m-1);
+	
+	//정점
+	meshData.Vertices.resize(vertexCount);
+	for(uint32 i = 0; i < m; ++i)
+	{
+		float z = halfDepth - i*dz;
+		for(uint32 j = 0; j < n; ++j)
+		{
+			float x = -halfWidth + j*dx;
+
+			meshData.Vertices[i*n+j].Position = XMFLOAT3(x, 0.0f, z);
+			meshData.Vertices[i*n+j].Normal   = XMFLOAT3(0.0f, 1.0f, 0.0f);
+			meshData.Vertices[i*n+j].TangentU = XMFLOAT3(1.0f, 0.0f, 0.0f);
+
+			// Stretch texture over grid.
+			meshData.Vertices[i*n+j].TexC.x = j*du;
+			meshData.Vertices[i*n+j].TexC.y = i*dv;
+		}
+	}
+ 
+ 	// 색인
+	meshData.Indices32.resize(faceCount*3); // 면마다 3개의 인덱스 필요
+
+	// Iterate over each quad and compute indices.
+	uint32 k = 0;
+	for(uint32 i = 0; i < m-1; ++i)
+	{
+		for(uint32 j = 0; j < n-1; ++j)
+		{
+			meshData.Indices32[k]   = i*n+j;
+			meshData.Indices32[k+1] = i*n+j+1;
+			meshData.Indices32[k+2] = (i+1)*n+j;
+
+			meshData.Indices32[k+3] = (i+1)*n+j;
+			meshData.Indices32[k+4] = i*n+j+1;
+			meshData.Indices32[k+5] = (i+1)*n+j+1;
+
+			k += 6; // next quad
+		}
+	}
+
+    return meshData;
+}
+
+
+```
+<br><br>
+
+**1-2 높이 함수**
+
+```
+void LandAndWavesApp::BuildLandGeometry()
+{
+	GeometryGenerator geoGen;
+	GeometryGenerator::MeshData grid = geoGen.CreateGrid(160.0f, 160.0f, 50, 50);
+
+	//
+	// 필요한 정점 성분들을 추출해서 각 정점에 높이 함수를 적용한다.
+	// 그 높이에 기초해서 정점의 색상도 적절히 바꾼다.
+	// 
+
+	std::vector<Vertex> vertices(grid.Vertices.size());
+	for(size_t i = 0; i < grid.Vertices.size(); ++i)
+	{
+		auto& p = grid.Vertices[i].Position;
+		vertices[i].Pos = p;
+		vertices[i].Pos.y = GetHillsHeight(p.x, p.z);
+
+        // 높이로 정점의 색상 결정
+        if(vertices[i].Pos.y < -10.0f)
+        {
+            // 모래 색
+            vertices[i].Color = XMFLOAT4(1.0f, 0.96f, 0.62f, 1.0f);
+        }
+        else if(vertices[i].Pos.y < 5.0f)
+        {
+            // 풀 색
+            vertices[i].Color = XMFLOAT4(0.48f, 0.77f, 0.46f, 1.0f);
+        }
+        else if(vertices[i].Pos.y < 12.0f)
+        {
+            // 검풀색
+            vertices[i].Color = XMFLOAT4(0.1f, 0.48f, 0.19f, 1.0f);
+        }
+        else if(vertices[i].Pos.y < 20.0f)
+        {
+            // 검갈색
+            vertices[i].Color = XMFLOAT4(0.45f, 0.39f, 0.34f, 1.0f);
+        }
+        else
+        {
+            // 눈색
+            vertices[i].Color = XMFLOAT4(1.0f, 1.0f, 1.0f, 1.0f);
+        }
+	}
+    
+	const UINT vbByteSize = (UINT)vertices.size() * sizeof(Vertex);
+
+	std::vector<std::uint16_t> indices = grid.GetIndices16();
+	const UINT ibByteSize = (UINT)indices.size() * sizeof(std::uint16_t);
+
+	auto geo = std::make_unique<MeshGeometry>();
+	geo->Name = "landGeo";
+
+	ThrowIfFailed(D3DCreateBlob(vbByteSize, &geo->VertexBufferCPU));
+	CopyMemory(geo->VertexBufferCPU->GetBufferPointer(), vertices.data(), vbByteSize);
+
+	ThrowIfFailed(D3DCreateBlob(ibByteSize, &geo->IndexBufferCPU));
+	CopyMemory(geo->IndexBufferCPU->GetBufferPointer(), indices.data(), ibByteSize);
+
+	geo->VertexBufferGPU = d3dUtil::CreateDefaultBuffer(md3dDevice.Get(),
+		mCommandList.Get(), vertices.data(), vbByteSize, geo->VertexBufferUploader);
+
+	geo->IndexBufferGPU = d3dUtil::CreateDefaultBuffer(md3dDevice.Get(),
+		mCommandList.Get(), indices.data(), ibByteSize, geo->IndexBufferUploader);
+
+	geo->VertexByteStride = sizeof(Vertex);
+	geo->VertexBufferByteSize = vbByteSize;
+	geo->IndexFormat = DXGI_FORMAT_R16_UINT;
+	geo->IndexBufferByteSize = ibByteSize;
+
+	SubmeshGeometry submesh;
+	submesh.IndexCount = (UINT)indices.size();
+	submesh.StartIndexLocation = 0;
+	submesh.BaseVertexLocation = 0;
+
+	geo->DrawArgs["grid"] = submesh;
+
+	mGeometries["landGeo"] = std::move(geo);
+}
+
+```
+
+
+<br />
+<br />
+<br>
+<br>
+
+### **2. 파도와 동적 정점버퍼**
+- 파도를 구현하기 위해서는 만들어진 격자의 높이값을 동적으로 변환시켜야한다.
+- 디폴트 힙은 앞서 정적인 기하구조에 적합하다는 것을 배웠다.
+- 동적으로 변하는 기하구조를 위해서는 업로드힙에 올려놓고 씨피유가 빠르게 접근할 수 있도록 설정해야 한다는 것을 우리는 이미 알고 있다.
+<br><br>
+
+**ex) 파도 생성 동적 정점버퍼**
+```
+void LandAndWavesApp::UpdateWaves(const GameTimer& gt)
+{
+	// 4분의 1초마다 무작위로 파도를 생성함.
+	static float t_base = 0.0f;
+	if((mTimer.TotalTime() - t_base) >= 0.25f)
+	{
+		t_base += 0.25f;
+
+		int i = MathHelper::Rand(4, mWaves->RowCount() - 5);
+		int j = MathHelper::Rand(4, mWaves->ColumnCount() - 5);
+
+		float r = MathHelper::RandF(0.2f, 0.5f);
+
+		mWaves->Disturb(i, j, r);
+	}
+
+	// 파도를 시간으로 갱신함
+	mWaves->Update(gt.DeltaTime());
+
+	// 새 정점들로 파도 정점버퍼 갱신함
+	auto currWavesVB = mCurrFrameResource->WavesVB.get();
+	for(int i = 0; i < mWaves->VertexCount(); ++i)
+	{
+		Vertex v;
+
+		v.Pos = mWaves->Position(i);
+        v.Color = XMFLOAT4(DirectX::Colors::Blue);
+
+		currWavesVB->CopyData(i, v);
+	}
+
+	// 파도 동적 정점버퍼를 렌더할 정점버퍼로 설정함.
+	mWavesRitem->Geo->VertexBufferGPU = currWavesVB->Resource();
+}
+```
+- 동적버퍼는 CPU에서 새 자료를 GPU로 전송하는 데 따른 추가부담이 분명히 발생한다.
+- 따라서 최대한 사용을 줄이는 것이 바람직하다.
+- D3D 최근 버전들에서는 다음과 같은 개선사항으로 동적 버퍼 사용을 줄일 수 있게 되었다<br>
+		-  간단한 애니메이션은 정점 셰이더에서 수행할 수 있다.<br>
+		-  계산 셰이더를 사용하면 동적 계산을 전적으로 GPU에서 실행하는 것이 가능하다<br>
+		-  기하 셰이더를 이용하면 정점 생성파괴를 CPU대신 GPU에서 수행할 수 있다<br>
+		-  테셀레이션을 이용하면 GPU에서 세밀한 기하구조를 추가할 수 있다.<br>
+
+
+
+<br><br><br>
+<br><br><br>
