@@ -1,0 +1,138 @@
+---
+layout: post
+title:  "9-1. 빛"
+date:   2021-02-05 01:09:01 +0900
+categories: jekyll update
+---
+#### Table of Contents
+1.　[**평행광(directional light)**](#1-평행광directional-light)<br>
+2.　[**점광(point light)**](#2-점광point-light)<br />
+2.　[**점적광(spot light)**](#3-점적광spot-light)<br /><br>
+<br />
+<br />
+**<span style="color:red"></span>**
+
+### **1. 평행광(directional light)**
+- 아주 멀리 있는 광원(ex **<span style="color:red">태양</span>**)의 빛
+- 모든 입사광선이 서로 평행
+- 물체와 광원의 거리가 내는 효과는 무시 (일정한 빛의 세기)
+- 방향 벡터 하나로 결정됨
+<br><br><br><br>
+
+**directional light**
+```
+float3 ComputeDirectionalLight(Light L, Material mat, float3 normal, float3 toEye)
+{
+    // 빛 벡터는 광선이 나아가는 반대방향
+    float3 lightVec = -L.Direction;
+
+    // 빛의 세기를 람베르트 코사인 법칙에 따라 줄임
+    float ndotl = max(dot(lightVec, normal), 0.0f);
+    float3 lightStrength = L.Strength * ndotl;
+
+    return BlinnPhong(lightStrength, lightVec, normal, toEye, mat);
+}
+```
+
+
+<br><br><br>
+<br><br><br>
+
+### **2. 점광(point light)**
+- 한 점으로부터 모든 방향으로 뿜어지는 빛 (ex **<span style="color:red">전구</span>**)
+- 빛 벡터가 점마다 달라진다는 점만 평행광과 다르다.<br><br>
+#### **2.1. 빛의 감쇠(attenuation)**<br>
+- 광원과 거리가 1인 지점에서 빛의 세기가 Io라고 할 때, 빛의 세기는 광원과 점사이의 거리의 제곱에 반비례한다.
+<br>
+```
+	I(d) = Io / d^2
+```
+위 공식은 물리 빛이 적용된 시스템에서 좋은 결과가 나온다.<br><br>
+더 쉽게 감쇠를 계산하는 방법은 선형 감쇠(attenuation)이다.<br>
+```
+	att(d) = saturate (end - d / end - start)
+```
+
+- 광원 값 BL에 감쇠 계수 att(d)를 곱하면 선형감쇠가 적용된다.
+- 광원과의 거리가 end 이상인 점은 빛을 전혀 받지 못해 셰이더 프로그램에서 조명 계산을 완전히 생략시킬 수 있다.
+  <br><br>
+<br><br>
+
+**point light**
+```
+float3 ComputePointLight(Light L, Material mat, float3 pos, float3 normal, float3 toEye)
+{
+    // 표면에서 광원으로의 벡터
+    float3 lightVec = L.Position - pos;
+
+    // 광원과 표면사이 거리
+    float d = length(lightVec);
+
+    // 범위 판정
+    if(d > L.FalloffEnd)
+        return 0.0f;
+
+    // 빛 벡터 정규화
+    lightVec /= d;
+
+    // 빛의 세기 줄임
+    float ndotl = max(dot(lightVec, normal), 0.0f);
+    float3 lightStrength = L.Strength * ndotl;
+
+    // 거리에 따른 빛 감쇠
+    float att = CalcAttenuation(d, L.FalloffStart, L.FalloffEnd);
+    lightStrength *= att;
+
+    return BlinnPhong(lightStrength, lightVec, normal, toEye, mat);
+}
+
+```
+
+<br><br><br>
+<br><br><br>
+
+
+### **3. 점적광(spot light)**
+- 광원에서 뻗어나가는 원뿔 형태의 빛 (ex **<span style="color:red">손전등</span>**)  
+```
+	Kspot(Φ) = max(cosΦ, 0)^s = max(-L*d, 0)^s
+```
+
+- 위 공식은 점적광 내부에 들어오는 위치 조건과 원뿔 안의 빛의 세기가 원뿔 중심축에서 가장 강하고, 원뿔 가장자리에서 0으로 감소하는 것을 표현한다.
+
+<br><br>
+
+**spot light**
+```
+float3 ComputeSpotLight(Light L, Material mat, float3 pos, float3 normal, float3 toEye)
+{
+    // 표면에서 광원으로 빛 벡터
+    float3 lightVec = L.Position - pos;
+
+    // 광원과 표면 사이 거리
+    float d = length(lightVec);
+
+    // 범위 판정
+    if(d > L.FalloffEnd)
+        return 0.0f;
+
+    // 빛 벡터 정규화
+    lightVec /= d;
+
+    // 람베르트 코사인 법칙에 따른 빛 감쇠
+    float ndotl = max(dot(lightVec, normal), 0.0f);
+    float3 lightStrength = L.Strength * ndotl;
+
+    // 거리에 따른 빛 감쇠
+    float att = CalcAttenuation(d, L.FalloffStart, L.FalloffEnd);
+    lightStrength *= att;
+
+    // 점적광 계수로 비례
+    float spotFactor = pow(max(dot(-lightVec, L.Direction), 0.0f), L.SpotPower);
+    lightStrength *= spotFactor;
+
+    return BlinnPhong(lightStrength, lightVec, normal, toEye, mat);
+}
+```
+
+<br><br><br><br><br><br>
