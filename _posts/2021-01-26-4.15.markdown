@@ -10,6 +10,7 @@ categories: jekyll update
 3.　[**혼합 계수(Blend Factor)**](#3-혼합-계수blend-factor)<br />
 4.　[**혼합 상태(Blend State)**](#4-혼합-상태blend-state)<br />
 5.　[**픽셀 잘라내기(Pixel Clipping)**](#5-픽셀-잘라내기pixel-clipping)<br />
+6.　[**안개 효과(Fog)**](#6-안개-효과fog)<br />
 <br />
 <br />
 **<span style="color:red"></span>**
@@ -111,3 +112,18 @@ typedef sturct D3D12_BLEND_DESC
 
 <br><br><br><br><br><br>
 
+
+### **6. 안개 효과(Fog)**
+- 안개 효과는 기상표현과 원근감 구현에 효과적인 방법이다.
+- 안개 표현 방법은 다음과 같다
+
+```
+1. 안개 범위와 색상을 설정한다.
+2. 물체의 한 점 색상을 구할 때 거리에 따라 안개 색상에 가중치를 두어 
+   혼합한다.
+3. 멀리 있으면 안개 색상을 더 많이, 안개 범위 밖으로 나간 물체는 안개에 
+   가려져 안보이게 된다.
+4. 물체가 안개 시작범위 안쪽에 있으면 안개 색상에 아무런 영향을 받지 않는다.
+```
+
+<br><br><br><br><br><br>
