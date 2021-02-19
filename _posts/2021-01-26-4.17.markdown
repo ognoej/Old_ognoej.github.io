@@ -1,0 +1,75 @@
+---
+layout: post
+title:  "13. 기하 셰이더(Geometry shader)"
+date:   2021-02-19 01:09:01 +0900
+categories: jekyll update
+---
+#### Table of Contents
+1.　[**기하 셰이더**](#1-기하-셰이더)<br>
+2.　[**빌보드 기법**](#2-빌보드-기법)<br />
+3.　[**텍스쳐 배열(Texture Array)**](#3-텍스쳐-배열texture-array)<br />
+3.　[**텍스쳐 부분자원(subresource)**](#4-텍스쳐-부분자원subresource)<br />
+<br />
+<br />
+**<span style="color:red"></span>**
+
+### **1. 기하 셰이더**
+- 기하 셰이더는 정점과 픽셀 셰이더 사이 있는 생략 가능한 파이프라인 단계다
+- 테셀레이션을 사용하면 기하 셰이더가 꼭 필요하다
+- 기하 셰이더는 정점을 확장하거나 파괴할 수 있다.
+- 기하 셰이더의 출력은 도형마다의 정점 리스트이다.
+- 가장 흔한 사용 기법은 정점 하나를 사각형 하나로 확장하는 것이다. 
+<br><br><br><br><br><br>
+
+
+### **2. 빌보드 기법**
+- 멀리 있는 배경을 그릴 때 효과적인 기법이다.
+- 멀리 있는 사물을 완전한 3차원 기하구조가 아닌 3차원 모습을 담은 2차원 텍스쳐를 사각형에 입히는 것으로 대신하는 기법이다.
+- 이 기법이 효과가 있으려면 빌보드 사각형이 항상 카메라를 바라봐야한다.
+- 빌보드 기법을 CPU에서 구현하면 동적정점버퍼를 매번 갱신해야한다는 부담(화면으로 바라보게 만드는)이 생긴다.
+- 기하 셰이더에서 빌보드를 구현하면 입력지점이 정적정점 버퍼를 사용할 수 있게 되므로 메모리 요구량이 상당히 작아지게된다.
+<br><br><br><br><br><br>
+
+
+### **3. 텍스쳐 배열(Texture Array)**
+- 텍스쳐 배열은 말 그대로 텍스쳐들의 배열이다.
+- 텍스쳐 배열이라는 개별적인 자료형이 존재하는 이유는 텍스쳐 배열 생성에서 오는 추가부담을 덜어주기 위함이다.
+- 텍스쳐 배열의 장점은 한 번의 그리기 호출에서 여러 기본도형에 서로 다른 텍스쳐를 입힐 수 있다는 것이다.
+- 텍스쳐 배열이 없다면 메시마다 개별적인 렌더 항목을 적용해야한다.
+
+ex)<br><br>
+=> 개별 렌더 타겟 사용 시<br><br>
+SetTexturA();
+DrawPrimitivesWithTexturA();
+
+SetTexturB();
+DrawPrimitivesWithTexturB();
+
+...
+
+SetTexturZ();
+DrawPrimitivesWithTexturZ();
+
+
+=> 텍스쳐 배열 사용 시
+
+SetTextureArray();
+DrawPrimitivesWithTextureArray();
+<br><br><br><br><br><br>
+
+
+### **4. 텍스쳐 부분자원(subresource)**
+- 한 텍스쳐 배열은 여러 장의 텍스쳐와 그 텍스쳐들의 밉맵 사슬들로 이루어져 있다.
+- 한 텍스쳐와 그 텍스쳐의 밉맵 사슬들을 배열 조각(array slice)라고 부른다
+- 전체 텍스쳐들의 각각의 밉맵 수준들을 밉 조각(mip slice)라고 부른다
+- **<span style="color:red">한 택스쳐의 특정 밉맵 수준에 해당하는 텍스쳐를 부분 자원(subresource)</span>**라고 부른다.
+
+다음은 부분 자원을 계산해주는 편의용 함수이다.
+```
+inLine UNIT D3D12CalcSubresource( UNIT MipSlice, UNIT ArraySlice, UNIT PlaneSlice, UNIT Miplevels, UNIT ArraySize)
+{
+  return MipSlice + ArraySlice * MipLevels + PlaneSlice * MipLevels * ArraySize;
+}
+```
+
+<br><br><br><br><br><br>
