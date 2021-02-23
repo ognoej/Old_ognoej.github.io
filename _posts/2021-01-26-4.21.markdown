@@ -7,7 +7,7 @@ categories: jekyll update
 #### Table of Contents
 1.　[**하드웨어 인스턴싱(Hardware Instancing)**](#1-하드웨어-인스턴싱hardware-instancing)<br><br />
 2.　[**인덱스 인스턴싱(Index Instancing)**](#2-인덱스-인스턴싱index-instancing)<br /><br />
-3.　[**절두체 선별(Frustum culling)**](#3-절두체-선별frustum-culling)<br />
+3.　[**경계 조건(Bounding Condition)**](#3-경계-조건bounding-condition)<br />
     　　3.1 [**경계 상자(bounding box)**](#31-경계-상자bounding-box)<br>
     　　3.2 [**경계 구(bounding sphere)**](#32-경계-구bounding-sphere)<br>
     　　3.3 [**절두체(Frustum)**](#33-절두체frustum)<br><br />
@@ -85,7 +85,7 @@ FrameResource::FrameResource(ID3D12Device* device, UINT passCount, UINT maxInsta
 
 <br><br><br><br><br><br>
 
-### **3. 절두체 선별(Frustum culling)**
+### **3. 경계 조건(Bounding Condition)**
 - 절두체 선별을 구현하려면 경계 입체와 절두체의 수학적 표현으로 근사하여야 한다.
 - DirectXMath에서 제공하는 DirectXCollision에 담긴 충돌 라이브러리를 사용해 경계 상자(bounding box)를 구현할 수 있다.
 - 이 라이브러리는 반직선 대 삼각형 교차와 반직선 대 상자 교차, 상자 대 평면 등 다양한 조합의 교차 판정 매서드를 제공한다.
