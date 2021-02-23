@@ -1,0 +1,283 @@
+---
+layout: post
+title:  "16. 1인칭 카메라"
+date:   2021-02-23 01:09:01 +0900
+categories: jekyll update
+---
+#### Table of Contents
+1.　[**카메라 클래스**](#1-카메라-클래스)<br><br />
+2.　[**카메라 변환**](#2-카메라-변환)<br /><br />
+3.　[**시야 행렬 구축(View matrix)**](#3-시야-행렬-구축view-matrix)<br /><br />
+4.　[**카메라 변환 적용**](#4-카메라-변환-적용)<br />
+<br />
+<br />
+**<span style="color:red"></span>**
+
+### **1. 카메라 클래스**
+- 카메라 클래스는 두 가지 중요한 정보를 저장한다. 
+- 하나는 **<span style="color:red">카메라 좌표</span>**(카메라 원점, x,y,z 축 벡터와 up벡터, lookat 벡터)
+- 다른 하나는 **<span style="color:red">View Frustum</span>**(시야각, 가까운 평면 거리, 먼 평면 거리) 속성
+
+```
+class Camera
+{
+public:
+
+	Camera();
+	~Camera();
+
+	// 월드 좌표 카메라 위치 정보
+	DirectX::XMVECTOR GetPosition()const;
+	DirectX::XMFLOAT3 GetPosition3f()const;
+	void SetPosition(float x, float y, float z);
+	void SetPosition(const DirectX::XMFLOAT3& v);
+	
+	// 카메라 방향벡터
+	DirectX::XMVECTOR GetRight()const;
+	DirectX::XMFLOAT3 GetRight3f()const;
+	DirectX::XMVECTOR GetUp()const;
+	DirectX::XMFLOAT3 GetUp3f()const;
+	DirectX::XMVECTOR GetLook()const;
+	DirectX::XMFLOAT3 GetLook3f()const;
+
+	// 시야 절두체(View frustum) 속성
+	float GetNearZ()const;
+	float GetFarZ()const;
+	float GetAspect()const;
+	float GetFovY()const;
+	float GetFovX()const;
+
+	// 근평면과 먼평면 높이 너비 정보
+	float GetNearWindowWidth()const;
+	float GetNearWindowHeight()const;
+	float GetFarWindowWidth()const;
+	float GetFarWindowHeight()const;
+	
+	// 시야 절두체 설정
+	void SetLens(float fovY, float aspect, float zn, float zf);
+
+	// 카메라 위치, 시선(Lookat), 상향(up)벡터로 카메라 좌표계 설정
+	void LookAt(DirectX::FXMVECTOR pos, DirectX::FXMVECTOR target, DirectX::FXMVECTOR worldUp);
+	void LookAt(const DirectX::XMFLOAT3& pos, const DirectX::XMFLOAT3& target, const DirectX::XMFLOAT3& up);
+
+	// 시야 행렬과 투영 행렬 조회
+	DirectX::XMMATRIX GetView()const;
+	DirectX::XMMATRIX GetProj()const;
+
+	DirectX::XMFLOAT4X4 GetView4x4f()const;
+	DirectX::XMFLOAT4X4 GetProj4x4f()const;
+
+	// 카메라 거리 d만큼 횡이동 축이동
+	void Strafe(float d);
+	void Walk(float d);
+
+	// 카메라 상하, 좌우회전
+	void Pitch(float angle);
+	void RotateY(float angle);
+
+	// 카메라 위치나 방향 수정하면 현재 카메라 정보 업데이트하는 update매서드 실행
+	void UpdateViewMatrix();
+
+private:
+
+	// 월드 카메라 좌표
+	DirectX::XMFLOAT3 mPosition = { 0.0f, 0.0f, 0.0f };
+	DirectX::XMFLOAT3 mRight = { 1.0f, 0.0f, 0.0f };
+	DirectX::XMFLOAT3 mUp = { 0.0f, 1.0f, 0.0f };
+	DirectX::XMFLOAT3 mLook = { 0.0f, 0.0f, 1.0f };
+
+	// Frustrum 속성들
+	float mNearZ = 0.0f;
+	float mFarZ = 0.0f;
+	float mAspect = 0.0f;
+	float mFovY = 0.0f;
+	float mNearWindowHeight = 0.0f;
+	float mFarWindowHeight = 0.0f;
+
+    // 시야 변경점이 있는지 여부 판단 있을때만 matrix update
+	bool mViewDirty = true;
+
+	// 시야 행렬과 투영행렬
+	DirectX::XMFLOAT4X4 mView = MathHelper::Identity4x4();
+	DirectX::XMFLOAT4X4 mProj = MathHelper::Identity4x4();
+};
+
+```
+
+<br><br><br><br><br><br>
+
+### **2. 카메라 변환**
+- 다음과 같은 1인칭 카메라 기능을 구현한다
+- 카메라 시선(look vector)을 따라 앞 뒤로 움직임(Walk)
+- 카메라 오른쪽 벡터를 따라 좌우로 이동(Strafe)
+- 카메라 오른쪽 벡터를 축으로 위아래 회전(pitch), Look벡터와 up벡터를 오른쪽벡터에 대해 회전시켜 구현
+- up벡터를 축으로 좌우 회전
+
+```
+
+// look 벡터 따라 앞 뒤 이동
+void Camera::Walk(float d)
+{
+	// mPosition += d*mLook
+	XMVECTOR s = XMVectorReplicate(d);
+	XMVECTOR l = XMLoadFloat3(&mLook);
+	XMVECTOR p = XMLoadFloat3(&mPosition);
+	XMStoreFloat3(&mPosition, XMVectorMultiplyAdd(s, l, p));
+
+    // 카메라 변경점이 있음을 알리는 변수
+	mViewDirty = true;
+}
+
+// 오른쪽 벡터 따라 좌우 평행이동
+void Camera::Strafe(float d)
+{
+	// mPosition += d*mRight
+	XMVECTOR s = XMVectorReplicate(d);
+	XMVECTOR r = XMLoadFloat3(&mRight);
+	XMVECTOR p = XMLoadFloat3(&mPosition);
+	XMStoreFloat3(&mPosition, XMVectorMultiplyAdd(s, r, p));
+
+	mViewDirty = true;
+}
+
+// 오른쪽 벡터를 축으로 위아래 회전
+void Camera::Pitch(float angle)
+{
+	// Rotate up and look vector about the right vector.
+
+	XMMATRIX R = XMMatrixRotationAxis(XMLoadFloat3(&mRight), angle);
+
+	XMStoreFloat3(&mUp,   XMVector3TransformNormal(XMLoadFloat3(&mUp), R));
+	XMStoreFloat3(&mLook, XMVector3TransformNormal(XMLoadFloat3(&mLook), R));
+
+	mViewDirty = true;
+}
+
+
+// Up벡터(여기선 y축)를 축으로 좌우 회전
+void Camera::RotateY(float angle)
+{
+	// Rotate the basis vectors about the world y-axis.
+
+	XMMATRIX R = XMMatrixRotationY(angle);
+
+	XMStoreFloat3(&mRight,   XMVector3TransformNormal(XMLoadFloat3(&mRight), R));
+	XMStoreFloat3(&mUp, XMVector3TransformNormal(XMLoadFloat3(&mUp), R));
+	XMStoreFloat3(&mLook, XMVector3TransformNormal(XMLoadFloat3(&mLook), R));
+
+	mViewDirty = true;
+}
+
+```
+
+<br><br><br><br><br><br>
+
+### **3. 시야 행렬 구축(View matrix)**
+- 내부에 가지고 있는 인자로 카메라의 **<span style="color:red">오른쪽 벡터와 Up벡터, Look벡터를 다시 정규직교화(Orthonormalization)하는 작업</span>**
+- 즉 서로 직교인 단위벡터(새로운 축 생성)을 하는 단계
+- 회전을 많이하면 오차가 누적되어서 축들이 정규직교가 아니게 될 수 있으므로 꼭 해줘야함.
+
+```
+void Camera::UpdateViewMatrix()
+{
+	if(mViewDirty)
+	{
+		XMVECTOR R = XMLoadFloat3(&mRight);
+		XMVECTOR U = XMLoadFloat3(&mUp);
+		XMVECTOR L = XMLoadFloat3(&mLook);
+		XMVECTOR P = XMLoadFloat3(&mPosition);
+
+		// 카메라 축들이 정규직교인 단위벡터가 되게함
+		L = XMVector3Normalize(L);
+		U = XMVector3Normalize(XMVector3Cross(L, R));
+
+		// U와 L이 정규직교이므로 그 외적은 정규화할 필요가 없음
+		R = XMVector3Cross(U, L);
+
+		// 시야 행렬들의 성분을 채움
+		float x = -XMVectorGetX(XMVector3Dot(P, R));
+		float y = -XMVectorGetX(XMVector3Dot(P, U));
+		float z = -XMVectorGetX(XMVector3Dot(P, L));
+
+		XMStoreFloat3(&mRight, R);
+		XMStoreFloat3(&mUp, U);
+		XMStoreFloat3(&mLook, L);
+
+		mView(0, 0) = mRight.x;
+		mView(1, 0) = mRight.y;
+		mView(2, 0) = mRight.z;
+		mView(3, 0) = x;
+
+		mView(0, 1) = mUp.x;
+		mView(1, 1) = mUp.y;
+		mView(2, 1) = mUp.z;
+		mView(3, 1) = y;
+
+		mView(0, 2) = mLook.x;
+		mView(1, 2) = mLook.y;
+		mView(2, 2) = mLook.z;
+		mView(3, 2) = z;
+
+		mView(0, 3) = 0.0f;
+		mView(1, 3) = 0.0f;
+		mView(2, 3) = 0.0f;
+		mView(3, 3) = 1.0f;
+
+		mViewDirty = false;
+	}
+}
+
+```
+
+
+
+<br><br><br><br><br><br>
+
+
+### **4. 카메라 변환 적용**
+- 이제 실제 응용프로그램에서 카메라 이동을 제어하는 매서드를 구현해본다
+- Param 값으로 들어온 키보드 값과 마우스 값을 이용하여 카메라의 움직임을 제어한다.
+
+
+```
+// 키보드 움직임으로 카메라 이동 제어
+void CameraAndDynamicIndexingApp::OnKeyboardInput(const GameTimer& gt)
+{
+	const float dt = gt.DeltaTime();
+
+	if(GetAsyncKeyState('W') & 0x8000)
+		mCamera.Walk(10.0f*dt);
+
+	if(GetAsyncKeyState('S') & 0x8000)
+		mCamera.Walk(-10.0f*dt);
+
+	if(GetAsyncKeyState('A') & 0x8000)
+		mCamera.Strafe(-10.0f*dt);
+
+	if(GetAsyncKeyState('D') & 0x8000)
+		mCamera.Strafe(10.0f*dt);
+
+	mCamera.UpdateViewMatrix();
+}
+
+// 마우스 움직임으로 카메라 회전 제어
+void CameraAndDynamicIndexingApp::OnMouseMove(WPARAM btnState, int x, int y)
+{
+		// 각 픽셀이 1/4도에 해당(0.25f)이 값을 조절하면 카메라 감도 변경
+		float dx = XMConvertToRadians(0.25f*static_cast<float>(x - mLastMousePos.x));
+		float dy = XMConvertToRadians(0.25f*static_cast<float>(y - mLastMousePos.y));
+
+		mCamera.Pitch(dy);
+		mCamera.RotateY(dx);
+
+    mLastMousePos.x = x;
+    mLastMousePos.y = y;
+}
+
+```
+
+
+
+
+
+<br><br><br><br><br><br>

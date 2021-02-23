@@ -1,0 +1,233 @@
+---
+layout: post
+title:  "17. 인스턴싱(Instancing)과 절두체 선별(Frustum Culling)"
+date:   2021-02-23 01:09:01 +0900
+categories: jekyll update
+---
+#### Table of Contents
+1.　[**하드웨어 인스턴싱(Hardware Instancing)**](#1-하드웨어-인스턴싱hardware-instancing)<br><br />
+2.　[**인덱스 인스턴싱(Index Instancing)**](#2-인덱스-인스턴싱index-instancing)<br /><br />
+3.　[**절두체 선별(Frustum culling)**](#3-절두체-선별frustum-culling)<br />
+    　　3.1 [**경계 상자(bounding box)**](#31-경계-상자bounding-box)<br>
+    　　3.2 [**경계 구(bounding sphere)**](#32-경계-구bounding-sphere)<br>
+    　　3.3 [**절두체(Frustum)**](#33-절두체frustum)<br><br />
+4.　[**교차 판정**](#4-교차-판정)<br />
+    　　4.1 [**절두체 대 구 교차**](#41-절두체-대-구-교차)<br>
+    　　4.2 [**절두체 대 AABB 교차**](#42-절두체-대-aabb-교차)<br>
+    　　4.3 [**절두체 컬링**](#43-절두체-컬링)<br><br>
+<br />
+<br />
+**<span style="color:red"></span>**
+
+### **1. 하드웨어 인스턴싱(Hardware Instancing)**
+- 인스턴싱(Instancing)은 한 장면에서 같은 물체를 여러 번 그리는 것을 말한다.
+- 같은 물체지만 위치나 방향, 재질, 텍스쳐, 축척 등을 다르게 해서 다른 물체인 것처럼 표현하는 방법이다.
+- 인스턴싱의 **<span style="color:red">가장 큰 목표는 그리기 횟수(API 호출 횟수(CPU부담))을 최대한 줄이는 것</span>**에 있다.
+- 인스턴싱(복제)할 물체를 정점과 인덱스를 한번만 저장해놓고 월드 좌표와 재질들만 바꿔서 여러번 그리는 것이 효율적이다.
+- 하지만 이 방법을 사용하면 메모리 사용량은 줄지만 API호출 횟수 부담은 여전히 한 객체당 한번으로 줄지 않는다.
+- **<span style="color:red">API 호출횟수가 늘어나면 CPU병목현상</span>**이 생긴다. 이를 해결하기 위해 한 프레임당 그리기 호출 횟수를 제한하거나 일괄호출(batching)하는 방법을 사용해왔다.
+- DX12부터는 인스턴싱용 API가 제공되며, 동적 색인화를 통해 인스턴싱을 더욱 유연하게 구현할 수 있다.
+
+<br><br><br><br><br><br>
+
+### **2. 인덱스 인스턴싱(Index Instancing)**
+- 앞선 장에서 이미 인덱스 인스턴싱으로 렌더링을 해왔다. 인덱스카운트가 1일 뿐이었다.<br><br>
+  cmdList->DrawIndexedInstanced(ri->IndexCount, 1, ri->StartIndexLocation,<br> ri->BaseVertexLocation, 0);<br><br>
+- 여기서 두번 째 매개변수는 InstanceCount로, 인스턴싱(복제본)을 몇 번 생성해서 그릴 지 선택하는 항목이다.
+- 1대신 10을 넣으면 10번 해당 객체를 그리겠지만 같은 위치, 같은 크기와 모형으로 덧붙여 10번 그리기 때문에 아무런 의미가 없다.
+- 이를 설정할 추가 인스턴싱 자료가 파이프라인에 장착되어야 한다.
+<br><br><br>
+
+- DX11 버전에서는 인스턴스별 자료를 레이아웃단계에서 설정했다.
+- D3D11_INPUT_CLASSIFICATION_PER_VERTEX_DATA 대신 D3D11_INPUT_CLASSIFICATION_PER_INSTANCE_DATA로 레이아웃을 설정하면 정점대신 인스턴스별로 파이프라인에 스트리밍된다.
+- 그 다음 인스턴싱을 위한 자료를 담은 정점 버퍼를 묶으면 인스턴싱 자료가 파이프라인에 공급되는 방식이었다.
+- DX12 버전에서는 조금더 현대적인 방법으로 인스턴싱을 묶을 수 있게 되었다.
+- 현대적인 방법은 모든 인스턴스에 대한 인스턴스별 자료를 버퍼에 담아서 사용하는 것이다.
+- 이 때 **<span style="color:red">정점 버퍼는 특정 인스턴스에 InstanceID라는 시스템 값으로 접근</span>**한다.
+
+
+```
+1. 인스턴스 버퍼 생성(동적 버퍼(업로드 버퍼))
+2. 상수 버퍼 대신 인스턴스 버퍼를 쉐이더에 묶음
+3. 쉐이더에서는 인스턴스 인덱스를 통해 각각의 객체를 구별지음
+4. 시스템 메모리에서 인스턴스 버퍼는 렌더 타겟의 일부로 저장됨
+```
+
+- 위의 사항에서 중요한 점은 **<span style="color:red">인스턴스 버퍼를 동적버퍼로 만들어야 프레임마다 갱신 시킬 수 있다는 점</span>**, 인스턴스 버퍼에는 시야 절두체 내부의 물체만 담겨도 된다는 점이다.
+<br><br>
+
+```
+// 렌더 타겟 자료 내부에 한 변수로 들어간 인스턴싱 자료 배열
+struct RenderItem
+{
+	...
+
+	// 인스턴스 데이터는 기존의 상수버퍼의 데이터와 비슷하다. 월드좌표, 메테리얼 인덱스 등을 담고있다.
+	std::vector<InstanceData> Instances;
+
+	...
+};
+
+// 프레임 자원에 인스턴스 버퍼를 생성해 저장해놓음
+FrameResource::FrameResource(ID3D12Device* device, UINT passCount, UINT maxInstanceCount, UINT materialCount)
+{
+    ThrowIfFailed(device->CreateCommandAllocator(
+        D3D12_COMMAND_LIST_TYPE_DIRECT,
+		IID_PPV_ARGS(CmdListAlloc.GetAddressOf())));
+
+    PassCB = std::make_unique<UploadBuffer<PassConstants>>(device, passCount, true);
+    MaterialBuffer = std::make_unique<UploadBuffer<MaterialData>>(device, materialCount, false);
+	InstanceBuffer = std::make_unique<UploadBuffer<InstanceData>>(device, maxInstanceCount, false);
+}
+
+```
+
+
+<br><br><br><br><br><br>
+
+### **3. 절두체 선별(Frustum culling)**
+- 절두체 선별을 구현하려면 경계 입체와 절두체의 수학적 표현으로 근사하여야 한다.
+- DirectXMath에서 제공하는 DirectXCollision에 담긴 충돌 라이브러리를 사용해 경계 상자(bounding box)를 구현할 수 있다.
+- 이 라이브러리는 반직선 대 삼각형 교차와 반직선 대 상자 교차, 상자 대 평면 등 다양한 조합의 교차 판정 매서드를 제공한다.
+<br><br><br>
+
+#### **3.1. 경계 상자(bounding box)**
+- 주어진 메시를 밀접하게 감싸는 상자로, 이 경계상자와의 충돌 여부로 물체 충돌 판정을 기록할 수 있다.
+- 흔히 사용되는 경계 상자로 AABB(Axis-Aligned bounding box)가 있다. 이 경계상자는 상자축이 좌표 축에 평행하여 최솟점과 최댓점 하나만으로도 경계 상자가 정의된다는 이점이 있다.
+- 다른 방법으로 중점과 한계 벡터로 경계 상자를 표현할 수도 있다.
+- 다른 경계 상자로 OBB(Oriented bounding box)가 있다. 이 경계상자는 로컬에서 계산한 aabb를 월드 좌표로 변환 시킨 경계 상자이다. 항상 특정 방향을 가리키고 있다.
+<br><br><br>
+
+#### **3.2. 경계 구(bounding sphere)**
+- 경계 구는 구 형태의 충돌 여부 감지 장치이다.
+- 중점과 반지름으로 구성된다.
+
+```
+struct BoundingSphere
+{
+	XMFLOAT3 Center;
+	float Radius;
+}
+```
+<br><br><br>
+
+#### **3.3. 절두체(Frustum)**
+- 절두체(각뿔대)는 여러번 살펴 본 시야 범위 도형이다.
+- 좌,우,위,아래, 먼평면과 가까운 평면의 6개의 평면으로 이루어진다.
+- 상하좌우 평면의 기울기와 먼평면 가까운평면 까지의 거리만 있으면 된다.
+
+```
+struct BoundingFrustum
+{
+	static const size_t CORNER_COUNT = 8;
+
+	MFLOAT3 Origin;				// 절두체 원점
+	XMFLOAT4 Orientation;			// 회전방향 쿼터니엄
+	float RightSlope;			// 양의 X 기울기
+	float LeftSlope;			// 음의 X 기울기
+	flaot TopSlope;				// 양의 Y 기울기
+	float BottomSlope;			// 음의 Y 기울기
+	float Near, Far;			// 먼평면 가까운평면 Z값
+}
+```
+
+<br><br><br><br><br><br>
+
+
+### **4. 교차 판정**
+#### **4.1. 절두체 대 구 교차**
+- 한 평면의 음의 공간(half-space)에 있다면 구가 절두체를 완전히 벗어나있다는 것을 의미한다.
+- 절두체가 6개의 평면이므로 총 6번의 평면 - 구 범위 판정을 시행하면 된다.
+- 구의 중심이 c이고 반지름이 r, 구와 평면 사이의 거리 k일 때,
+
+
+```
+ |k| =< r 이면 교차
+ |k| > r 이면 벗어남 (음의 공간)
+```
+<br><br><br>
+
+#### **4.2. 절두체 대 AABB 교차**
+- 구와 마찬가지로 6개의 평면에서 교차 판정을 시행한다.
+
+```
+중점을 지나는 AABB의 벡터중 평면 법선과 가장 비슷한 벡터 PQ를 구한다.
+ - 점 P가 평면 뒤쪽이고 Q가 평면 앞쪽이면 교차다.
+ - P가 평면 앞이면 무조건 벗어난다.
+ - Q가 평면 뒤여도 무조건 벗어난다. 
+```
+<br><br><br>
+
+
+#### **4.3. 절두체 컬링**
+- 하드웨어는 삼각형 절단 단계에서 시야 절두체 밖의 삼각형들을 자동으로 폐기한다
+- 하지만 여기까지 도달하는 과정에서 정점들이 거치는 단계가 너무 많아 낭비가 심하다.
+- 절두체 컬링을 하면 **<span style="color:red">삼각형들을 미리 걸러내서 연산량을 대폭 줄일 수 있게 된다</span>**.
+
+```
+절두체 컬링 방법
+1. 물체마다 경계입체로 감싼다.
+2. 절두체와 경계입체 충돌 판정을 시행한다.
+3. 교차하지 않는 물체들은 파이프라인 입력 단계에서 제외시킨다.
+```
+- 카메라 범위가 무한하다고 해도 시야 절두체의 범위는 전체 세계의 6분의 1이다.
+- 따라서 전체 물체의 6분의 1이 절두체 컬링단계에서 폐기된다. 계산량이 6분의 1이상으로 줄고 시작하는 것이다.
+<br><br>
+
+***절두체 컬링 매서드***
+```
+void InstancingAndCullingApp::UpdateInstanceData(const GameTimer& gt)
+{
+	XMMATRIX view = mCamera.GetView();
+	XMMATRIX invView = XMMatrixInverse(&XMMatrixDeterminant(view), view);
+
+	auto currInstanceBuffer = mCurrFrameResource->InstanceBuffer.get();
+	for(auto& e : mAllRitems)
+	{
+		const auto& instanceData = e->Instances;
+
+		int visibleInstanceCount = 0;
+
+		for(UINT i = 0; i < (UINT)instanceData.size(); ++i)
+		{
+			XMMATRIX world = XMLoadFloat4x4(&instanceData[i].World);
+			XMMATRIX texTransform = XMLoadFloat4x4(&instanceData[i].TexTransform);
+
+			XMMATRIX invWorld = XMMatrixInverse(&XMMatrixDeterminant(world), world);
+
+			// 시야 공간 물체를 로컬 공간으로 옮겨온다.
+			XMMATRIX viewToLocal = XMMatrixMultiply(invView, invWorld);
+ 
+			// 카메라 절두체를 시야 공간에서 물체의 로컬 공간으로 변환한다.
+			BoundingFrustum localSpaceFrustum;
+			mCamFrustum.Transform(localSpaceFrustum, viewToLocal);
+
+			// 로컬 공간에서 aabb대 절두체 교차 판정을 수행한다.
+			if((localSpaceFrustum.Contains(e->Bounds) != DirectX::DISJOINT) || (mFrustumCullingEnabled==false))
+			{
+				InstanceData data;
+				XMStoreFloat4x4(&data.World, XMMatrixTranspose(world));
+				XMStoreFloat4x4(&data.TexTransform, XMMatrixTranspose(texTransform));
+				data.MaterialIndex = instanceData[i].MaterialIndex;
+
+				// 가시적인 물체의 인스턴스 자료를 인스턴스 버퍼에 추가한다.
+				// 교차판정 실패한 물체는 버퍼에 들어가지 않는다.(컬링)
+				currInstanceBuffer->CopyData(visibleInstanceCount++, data);
+			}
+		}
+
+		e->InstanceCount = visibleInstanceCount;
+
+		// 디버깅과 진단을 위해, 가시적인 인스턴스들의 개수와
+		// 전체 인스턴스 개수를 출력한다.
+		std::wostringstream outs;
+		outs.precision(6);
+		outs << L"Instancing and Culling Demo" <<
+			L"    " << e->InstanceCount <<
+			L" objects visible out of " << e->Instances.size();
+		mMainWndCaption = outs.str();
+	}
+}
+
+```
+<br><br><br><br><br><br>
