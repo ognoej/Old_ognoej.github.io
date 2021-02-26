@@ -19,20 +19,30 @@ categories: jekyll update
 <br />
 <br />
 - **<span style="color:red">선택 알고리즘의 순서도</span>**는 다음과 같다
+
 ```
 1. 클릭한 화면의 위치좌표에서 3차원 시야 공간의 한 점으로 향하는 반직선
-     (Picking Ray)를 계산한다.
+   (Picking Ray)를 계산한다.
+
 2. 시야 공간에서의 반직선을 월드좌표계로, 다시 물체 각각의 로컬좌표계로
-     변환시킨다.
-3. 각 메쉬의 로컬 좌표상에서 반직선대 삼각형들의 교차 판정을 수행한다.
-4. 삼각형 하나라도 교차하면 교차, 하나도 교차하지 않으면 비교차이다.
-5. 여러개의 삼각형이 동시에 겹칠 경우 카메라와 가장 가까운 삼각형을 선택
-6. 같은 방식으로 Bounding Box, Bounding Sphere도 비교처리할 수 있다.
+   변환시킨다.
+
+3. 각 메쉬의 로컬 좌표상에서 반직선과의 충돌 검사를 실행한다.
+
+4. 메쉬의 Bounding 도형과 충돌검사를 먼저 실행한다. 충돌하지 않으면 메쉬를
+   건너뛴다.
+
+5. Bounding 충돌이 True면 메쉬의 모든 삼각형들과 반직선을 충돌체크한다.
+
+6. 삼각형 하나라도 교차하면 교차, 하나도 교차하지 않으면 비교차이다.
+
+6. 여러개의 삼각형이 동시에 겹칠 경우 카메라와 가장 가까운 삼각형을 선택
 ```
 
 <br />
-- 반직선과 물체의 **<span style="color:red">교차판정을 월드좌표에서 실행하지 않는 이유</span>**는, 대부분의 게임 상의 **<span style="color:red">물체가 로컬좌표로 정의되어 있기 때문</span>**이다.
-- 모든 물체를 월드좌표계로 옮겨와 비교할 수도 있지만 메시의 정점이 매우 많으므로 월드좌표계로 변환시키는 비용이 매우크다. 따라서 반직선을 로컬로 변환하여 비교하는 것이 비용이 적다.
+- 반직선과 물체의 교차판정을 월드좌표에서 실행하지 않는 이유는, 대부분의 게임 상의 물체가 로컬좌표로 정의되어 있기 때문.<br /><br />
+- 모든 물체를 월드좌표계로 옮겨와 비교할 수도 있지만 메시의 정점이 매우 많으므로 월드좌표계로 변환시키는 비용이 매우크다. 따라서 **<span style="color:red">반직선을 로컬수준까지 변환하여 비교하는 것이 비용이 적다</span>**.<br /><br />
+- **<span style="color:red">Bounding Condition Check를 먼저 수행</span>**함으로써 충돌체크 비용을 대폭 줄일 수 있다.
 
 <br><br><br><br><br><br>
 
@@ -53,7 +63,7 @@ categories: jekyll update
 	Xv = R(2Xs/w - 1)
 	Yv = -2Ys/h + 1
 ```
-- Yv에 R을 곱하지 않는 이유는 보통의 게임에서 시야 공간의 투영 창 높이가 종횡비 곱하기 전에 이미 [-1,1]구간으로 설정되기 때문이다.
+- Yv에 R을 곱하지 않는 이유는 보통의 게임에서 시야 공간의 투영 창 높이가 종횡비 곱하기 전에 이미 [-1,1]구간으로 설정되기 때문에 Y값을 종횡비로 나눠놓은 경우가 많지 않기 때문이다.
 
 <br><br>
 
@@ -63,11 +73,13 @@ categories: jekyll update
 	Y'v = (-2sy/h + 1) / P11
 ```
 - 투영 행렬에서 Poo = 1 / rtan(a/2) 이고 P11 = 1 / tan(a/2)이므로,<br> 점(Xv, Yv, d)로 쏜 반직선은 (X'v, Y'v, 1)을 통과하는 반직선과 같은 반직선이 나온다.
+- a는 수직 시야각이다.
 
 <br><br>
 
 **시야 공간에서 시점(eye)로부터 점 (X'v,Y'v,1)로 선택 반직선 함수**
 ```
+
   void PickingApp::Pick(int sx, int sy)
 {
 	XMFLOAT4X4 P = mCamera.GetProj4x4f();
@@ -83,6 +95,7 @@ categories: jekyll update
 	XMMATRIX V = mCamera.GetView();
 	XMMATRIX invView = XMMatrixInverse(&XMMatrixDeterminant(V), V);
 
+
 ```
 - 여기서 시점(eye)는 시점 좌표계에서 보통 원점이다.
 
@@ -93,13 +106,13 @@ categories: jekyll update
 - 물체가 모두 월드 좌표계에 정의되어 있다면 월드 좌표계의 선택반직선에서 충돌 검사를 하면 되지만, **<span style="color:red">대부분의 메쉬가 로컬좌표에서 정의되어 있으므로 선택 반직선을 다시 물체 각각의 로컬 좌표계로 변환시켜 충돌 검사를 진행</span>**시켜줘야한다.
 - 물체의 메쉬들을 월드좌표로 전부 변환시키는 연산보다 선택 반직선 하나를 로컬좌표로 변환시키는 연산이 훨씬 효율적이기 때문이다.
 
-<br><br><br><br>
+<br><br><br>
 
 
 **월드 좌표에서 선택 반직선(Picking ray)**
 ```
 	Rworld(t) = qV^-1 + tuV^-1
-				=	qw + tuw
+	          = qw + tuw
 ```
 - 여기서 V는 시야 행렬이다
 <br><br><br><br>
@@ -116,8 +129,10 @@ categories: jekyll update
 
 **시야 좌표계의 선택 반직선을 물체의 로컬 좌표계로 변환하는 함수**
 ```
+
 // 디폴트 값은 아무것도 선택되지 않아 보이지 않는 상태이다.
 mPickedRitem->Visible = false;
+
 
 // 불투명한 렌더 타겟들만 고려한다.
 // 실제로 게임을 만들 때는 Picking이 가능한 
@@ -129,16 +144,20 @@ for(auto ri : mRitemLayer[(int)RenderLayer::Opaque])
   if(ri->Visible == false)
   	continue;
 
+
   XMMATRIX W = XMLoadFloat4x4(&ri->World);
   XMMATRIX invWorld = XMMatrixInverse(&XMMatrixDeterminant(W), W);
+
 
   // Ray를 메쉬의 로컬 좌표로 변환한다.
   XMMATRIX toLocal = XMMatrixMultiply(invView, invWorld);
   rayOrigin = XMVector3TransformCoord(rayOrigin, toLocal);
   rayDir = XMVector3TransformNormal(rayDir, toLocal);
 
+
   // 교차 판정을 위해 반직선 방향 벡터를 단위벡터로 만든다.
   rayDir = XMVector3Normalize(rayDir);
+
 ```
 - 여기서 중요한 점은 **<span style="color:red">실제 게임을 구현 할 때는 선택 가능한 Picking List를 따로 관리</span>**해야 코드 구성이 편해진다는 점이다. 꼭 기억하자.
 
@@ -221,8 +240,8 @@ if(ri->Bounds.Intersects(rayOrigin, rayDir, tmin))
  }
 }
 ```
-- 여기서 중요한 점은 **<span style="color:red">비교를 수행하는 메쉬의 정점 정보들이 시스템 메모리에 있는 복사본</span>**이라는 점이다.
-- 현재 GPU가 렌더링 중인 정점 정보를 CPU가 가져와 비교하는 것이 불가능하기 때문이다.
-- 이 때 저장할 **<span style="color:red">메쉬정보를 단순화해서 저장하면 시스템 메모리의 낭비를 감소시킬 수도 있다</span>**.
+- 여기서 중요한 점은 **<span style="color:red">비교를 수행하는 메쉬의 정점 정보들이 시스템 메모리에 있는 복사본</span>**이라는 것<br><br>
+- 현재 GPU가 렌더링 중인 정점 정보를 CPU가 가져와 비교하는 것이 불가능하기 때문이다.<br><br>
+- 이 때 저장할 **<span style="color:red">메쉬정보를 단순화해서 저장하면 시스템 메모리의 낭비를 감소</span>**시킬 수도 있다.
 
 <br><br><br><br><br><br>
