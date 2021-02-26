@@ -1,0 +1,228 @@
+---
+layout: post
+title:  "18. 3차원 물체 선택(Picking)"
+date:   2021-02-26 01:09:01 +0900
+categories: jekyll update
+---
+#### Table of Contents
+1.　[**선택 알고리즘(Picking Algorithm)**](#1-선택-알고리즘picking-algorithm)<br><br />
+2.　[**화면좌표계에서 투영 좌표계(NDC)로의 변환**](#2-화면좌표계에서-투영-좌표계ndc로의-변환)<br /><br />
+3.　[**월드 좌표계에서 로컬 좌표계로 선택 반직선 변환**](#3-월드-좌표계에서-로컬-좌표계로-선택-반직선-변환)<br /><br />
+4.　[**반직선 대 메쉬(Ray to Mesh) 교차 판정**](#4-반직선-대-메쉬ray-to-mesh-교차-판정)<br /><br />
+<br />
+<br />
+**<span style="color:red"></span>**
+
+### **1. 선택 알고리즘(Picking Algorithm)**
+- 게임에서 필수적으로 구현해야할 알고리즘이 선택 알고리즘이다.
+- 이제까지의 투영변환과는 반대로 2차원 화면에서 3차원 공간으로 변환이 필요하다.
+<br />
+<br />
+- **<span style="color:red">선택 알고리즘의 순서도</span>**는 다음과 같다
+```
+1. 클릭한 화면의 위치좌표에서 3차원 시야 공간의 한 점으로 향하는 반직선
+     (Picking Ray)를 계산한다.
+2. 시야 공간에서의 반직선을 월드좌표계로, 다시 물체 각각의 로컬좌표계로
+     변환시킨다.
+3. 각 메쉬의 로컬 좌표상에서 반직선대 삼각형들의 교차 판정을 수행한다.
+4. 삼각형 하나라도 교차하면 교차, 하나도 교차하지 않으면 비교차이다.
+5. 여러개의 삼각형이 동시에 겹칠 경우 카메라와 가장 가까운 삼각형을 선택
+6. 같은 방식으로 Bounding Box, Bounding Sphere도 비교처리할 수 있다.
+```
+
+<br />
+- 반직선과 물체의 **<span style="color:red">교차판정을 월드좌표에서 실행하지 않는 이유</span>**는, 대부분의 게임 상의 **<span style="color:red">물체가 로컬좌표로 정의되어 있기 때문</span>**이다.
+- 모든 물체를 월드좌표계로 옮겨와 비교할 수도 있지만 메시의 정점이 매우 많으므로 월드좌표계로 변환시키는 비용이 매우크다. 따라서 반직선을 로컬로 변환하여 비교하는 것이 비용이 적다.
+
+<br><br><br><br><br><br>
+
+### **2. 화면좌표계에서 투영 좌표계(NDC)로의 변환**
+- 알고리즘의 첫 번째 순서인 화면의 클릭된 좌표에서 투영좌표계로의 변환과 해당 좌표로 쏘는 반직선을 계산한다.
+- 일반적으로 게임에서 뷰포트가 후면 버퍼 전체이고, 깊이 버퍼가 0~1 사이로 정의되므 뷰포트 행렬을 간단화 시킬 수 있다.
+<br><br><br><br>
+
+**뷰포트 행렬을 통해 구한 투영좌표계(NDC)상에서의 점(Xndc,Yndc)**
+```
+	Xndc = 2Xs/w - 1
+	Yndc = -2Ys/h + 1
+```
+<br><br>
+
+**종횡비 R을 곱해주어 NDC에서 시야 좌표계로 변환한 점(Xv,Yv)**
+```
+	Xv = R(2Xs/w - 1)
+	Yv = -2Ys/h + 1
+```
+- Yv에 R을 곱하지 않는 이유는 보통의 게임에서 시야 공간의 투영 창 높이가 종횡비 곱하기 전에 이미 [-1,1]구간으로 설정되기 때문이다.
+
+<br><br>
+
+**투영창과 원점 사이의 거리 d=cot(a/2)를 이용하여 점 (Xv,Yv,d)로 쏜 선택 반직선(Picking ray)**
+```
+	X'v = (2Sx/w - 1) / Poo
+	Y'v = (-2sy/h + 1) / P11
+```
+- 투영 행렬에서 Poo = 1 / rtan(a/2) 이고 P11 = 1 / tan(a/2)이므로,<br> 점(Xv, Yv, d)로 쏜 반직선은 (X'v, Y'v, 1)을 통과하는 반직선과 같은 반직선이 나온다.
+
+<br><br>
+
+**시야 공간에서 시점(eye)로부터 점 (X'v,Y'v,1)로 선택 반직선 함수**
+```
+  void PickingApp::Pick(int sx, int sy)
+{
+	XMFLOAT4X4 P = mCamera.GetProj4x4f();
+
+	// 시야 공간에서 선택 반직선 계산
+	float vx = (+2.0f*sx / mClientWidth - 1.0f) / P(0, 0);
+	float vy = (-2.0f*sy / mClientHeight + 1.0f) / P(1, 1);
+
+	// 시야 공간에서 반직선 정의
+	XMVECTOR rayOrigin = XMVectorSet(0.0f, 0.0f, 0.0f, 1.0f);
+	XMVECTOR rayDir = XMVectorSet(vx, vy, 1.0f, 0.0f);
+	
+	XMMATRIX V = mCamera.GetView();
+	XMMATRIX invView = XMMatrixInverse(&XMMatrixDeterminant(V), V);
+
+```
+- 여기서 시점(eye)는 시점 좌표계에서 보통 원점이다.
+
+<br><br><br><br><br><br>
+
+### **3. 월드 좌표계에서 로컬 좌표계로 선택 반직선 변환**
+- 시야 공간에서 월드 좌표로 선택 반직선을 변환 시키고, 월드 좌표에서 다시 물체 각각의 로컬 좌표계로 선택반직선을 변환시켜줘야한다.
+- 물체가 모두 월드 좌표계에 정의되어 있다면 월드 좌표계의 선택반직선에서 충돌 검사를 하면 되지만, **<span style="color:red">대부분의 메쉬가 로컬좌표에서 정의되어 있으므로 선택 반직선을 다시 물체 각각의 로컬 좌표계로 변환시켜 충돌 검사를 진행</span>**시켜줘야한다.
+- 물체의 메쉬들을 월드좌표로 전부 변환시키는 연산보다 선택 반직선 하나를 로컬좌표로 변환시키는 연산이 훨씬 효율적이기 때문이다.
+
+<br><br><br><br>
+
+
+**월드 좌표에서 선택 반직선(Picking ray)**
+```
+	Rworld(t) = qV^-1 + tuV^-1
+				=	qw + tuw
+```
+- 여기서 V는 시야 행렬이다
+<br><br><br><br>
+
+
+
+**로컬 좌표에서 선택 반직선(Picking ray)**
+```
+	Rlocal(t) = qwW^-1 + tuwW^-1
+```
+- 물체의 월드 행렬이 W일 때, 해당 물체의 로컬 좌표계로 변환은 W^-1이다.
+<br><br><br><br>
+
+
+**시야 좌표계의 선택 반직선을 물체의 로컬 좌표계로 변환하는 함수**
+```
+// 디폴트 값은 아무것도 선택되지 않아 보이지 않는 상태이다.
+mPickedRitem->Visible = false;
+
+// 불투명한 렌더 타겟들만 고려한다.
+// 실제로 게임을 만들 때는 Picking이 가능한 
+// Picking Object list를 따로 만들어둔다.
+for(auto ri : mRitemLayer[(int)RenderLayer::Opaque])
+{
+  auto geo = ri->Geo;
+  // 보이지 않는 렌더 항목은 건너뛴다.
+  if(ri->Visible == false)
+  	continue;
+
+  XMMATRIX W = XMLoadFloat4x4(&ri->World);
+  XMMATRIX invWorld = XMMatrixInverse(&XMMatrixDeterminant(W), W);
+
+  // Ray를 메쉬의 로컬 좌표로 변환한다.
+  XMMATRIX toLocal = XMMatrixMultiply(invView, invWorld);
+  rayOrigin = XMVector3TransformCoord(rayOrigin, toLocal);
+  rayDir = XMVector3TransformNormal(rayDir, toLocal);
+
+  // 교차 판정을 위해 반직선 방향 벡터를 단위벡터로 만든다.
+  rayDir = XMVector3Normalize(rayDir);
+```
+- 여기서 중요한 점은 **<span style="color:red">실제 게임을 구현 할 때는 선택 가능한 Picking List를 따로 관리</span>**해야 코드 구성이 편해진다는 점이다. 꼭 기억하자.
+
+<br><br><br><br><br><br>
+
+### **4. 반직선 대 메쉬(Ray to Mesh) 교차 판정**
+- 드디어 반직선과 메쉬가 같은 좌표계 안에 들어오게 되었다. 교차판정이 가능
+- 메쉬는 여러개의 삼각형으로 이루어져있으므로 각 삼각형들과 반직선의 교차판정을 모두 수행한다.
+- 한 개의 삼각형이라도 반직선과 교차하면 해당 메쉬는 선택된 것으로 간주한다.
+- 여러개의 삼각형이 동시에 메쉬에 관통되는 상황이 발생할 수 있다. 
+- 그럴 경우  **<span style="color:red">카메라와 가까운 삼각형이 선택</span>**된 것으로 처리한다.
+
+
+```
+// 반직선이 메쉬의 경계 도형(Bounding)과 겹치는지 먼저 판단한다.
+// 반직선이 경계 도형과 겹치지 않는다면 
+// 메쉬의 삼각형을 일일히 비교할 필요가 없으므로 비교를 종료한다.
+// 경계 상자와의 충돌여부인 bound.intersects함수는 따로 구현하도록한다.
+float tmin = 0.0f;
+
+
+if(ri->Bounds.Intersects(rayOrigin, rayDir, tmin))
+{
+
+ // 이 코드에서는 교차 판정할 삼각형들의
+ // Vertex 구조체가 한 가지로 고정되어있다.
+ // 만약 여러개의 정점 구조체를 사용할 때는
+ // 식별용 메타 데이터가 따로 필요하다.
+ auto vertices = (Vertex*)geo->VertexBufferCPU->GetBufferPointer();
+ auto indices = (std::uint32_t*)geo->IndexBufferCPU->GetBufferPointer();
+ UINT triCount = ri->IndexCount / 3;
+
+
+ // 반직선과 교차하는 가장 가까운 삼각형을 찾는다.
+ tmin = MathHelper::Infinity;
+ for(UINT i = 0; i < triCount; ++i)
+ {
+
+  // 해당 삼각형의 색인들
+  UINT i0 = indices[i * 3 + 0];
+  UINT i1 = indices[i * 3 + 1];
+  UINT i2 = indices[i * 3 + 2];
+
+	
+  // 해당 삼각형의 정점정보
+  XMVECTOR v0 = XMLoadFloat3(&vertices[i0].Pos);
+  XMVECTOR v1 = XMLoadFloat3(&vertices[i1].Pos);
+  XMVECTOR v2 = XMLoadFloat3(&vertices[i2].Pos);
+
+
+  // 가장 가까운 삼각형을 찾기 위해서는
+  // 메쉬의 모든 삼각형과 교차 비교를 해야한다.
+  float t = 0.0f;
+  if(TriangleTests::Intersects(rayOrigin, rayDir, v0, v1, v2, t))
+  {
+   if(t < tmin)
+   {
+
+    // 가장 가까운 삼각형이다.
+    tmin = t;
+    UINT pickedTriangle = i;
+
+    // 선택 삼각형이 화면에 나타나도록 렌더 항목의 속성들을 설정한다.
+    // 여기서는 선택된 삼각형을 강조해서 표시하도록
+    // "Highlight" 재질이 설정되어 있다.
+    mPickedRitem->Visible = true;
+    mPickedRitem->IndexCount = 3;
+    mPickedRitem->BaseVertexLocation = 0;
+
+    // 선택된 삼각형의 월드 행렬은 선택된 물체의 월드 행렬과 동일하다.
+    mPickedRitem->World = ri->World;
+    mPickedRitem->NumFramesDirty = gNumFrameResources;
+
+
+    // 메쉬 인덱스 버퍼에서 선택된 삼각형이 시작되는 위치를 설정한다.
+    mPickedRitem->StartIndexLocation = 3 * pickedTriangle;
+
+   }
+  }
+ }
+}
+```
+- 여기서 중요한 점은 **<span style="color:red">비교를 수행하는 메쉬의 정점 정보들이 시스템 메모리에 있는 복사본</span>**이라는 점이다.
+- 현재 GPU가 렌더링 중인 정점 정보를 CPU가 가져와 비교하는 것이 불가능하기 때문이다.
+- 이 때 저장할 **<span style="color:red">메쉬정보를 단순화해서 저장하면 시스템 메모리의 낭비를 감소시킬 수도 있다</span>**.
+
+<br><br><br><br><br><br>
