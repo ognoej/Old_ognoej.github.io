@@ -1,6 +1,6 @@
 ---
 layout: post
-title:  "18. 3차원 물체 선택(Picking)"
+title:  "19. 입방체 매핑(Cube Mapping)"
 date:   2021-02-26 01:09:01 +0900
 categories: jekyll update
 ---
