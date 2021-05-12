@@ -5,7 +5,7 @@
   border-bottom: 1px solid $grey-color-light;
   min-height: 56px;
 
-  padding-top: 10px;
+  padding-top: 30px;
   padding-bottom: 10px;
 
   @include media-query($on-mobile) {
@@ -36,7 +36,7 @@
 .site-nav {
   z-index: 10;
   float: right;
-  line-height: 56px;
+  line-height: 50px;
 
   .menu-icon {
     display: none;

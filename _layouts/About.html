@@ -7,18 +7,18 @@
 
     <div class="page-content">
       <div class="wrapper">
-        <div class="work">
+        <div class="About">
           <h1 class="page-heading">{{ page.title }}</h1>
           {{ content }}
 
           {% for item in page.items %}
-          <div class="work-item">
+          <div class="About-item">
             <img
               src="{{ item.image.src | absolute_url }}"
               alt="{{ item.image.alt }}"
-              class="work-bubble"
+              class="About-bubble"
             />
-            <span class="work-text">
+            <span class="About-text">
               <strong>{{ item.title }}</strong>         
               {{ item.description }}
             </span>

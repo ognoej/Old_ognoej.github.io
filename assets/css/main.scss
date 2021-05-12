@@ -7,7 +7,7 @@
 // Our variables
 $base-url: "{{ site.baseurl }}";
 
-$base-font-family: Charter, Georgia, Helvetica, Arial, sans-serif;
+$base-font-family: Arial, Georgia, Helvetica, Arial, sans-serif;
 $base-font-size: 14px;
 $small-font-size: $base-font-size * 0.875;
 $base-line-height: 1.7;
@@ -32,4 +32,4 @@ $on-laptop: 800px;
 }
 
 // Import partials from `sass_dir` (defaults to `_sass`)
-@import "base", "layout", "site", "work", "blog", "post", "404", "directx";
+@import "base", "layout", "site", "About", "blog", "post", "404", "directx";
