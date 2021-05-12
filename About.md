@@ -1,7 +1,7 @@
 ---
-layout: About
+layout: about
 title: 
-slug: /About
+slug: /about
 items:
   #- title: 
     #image:
