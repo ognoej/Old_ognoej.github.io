@@ -48,3 +48,22 @@ categories: jekyll update
 
 <br><br><br><br><br><br>
 
+
+### **3. 깃 리셋 (Git Reset) 사용하기**
+- Git Reset은 이전의 커밋내용으로 돌아갈 수 있다
+- git reset --옵션 <돌아갈 커밋 번호> 로 사용한다.
+- 옵션은 --soft, --mixed, --hard 가 있다.
+- hard는 모든 내용과 파일을 삭제하고 원하는 커밋 상태로 돌아간다
+- mixed는 내용을 유지한채 원하는 커밋 위치로 돌아간다
+- soft는 커밋만 돌아가고 모든 변경 사항을 남긴다
+  
+주의점
+```
+1. visual studio가 열린 상태에서는 reset이 실패할 수 있다. 
+   visual studio가 커밋내용진행중 내용을 바꿀수 있기 때문이다
+
+2. git cmd를 관리자 모드로 실행시켜야 한다.
+
+```
+<br><br><br><br><br><br>
+

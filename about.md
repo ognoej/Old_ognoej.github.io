@@ -36,6 +36,10 @@ items:
 
 <br>
 
+<br>
+
+
+**<span style="color:indigo">학습의 의지가 강합니다</span>**<br>
 
 -------------
 
