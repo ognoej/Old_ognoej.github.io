@@ -65,5 +65,17 @@ categories: jekyll update
 2. git cmd를 관리자 모드로 실행시켜야 한다.
 
 ```
+<br><br><br><br>
+
+### **4.  Column major와 Row major**
+- DirectX는 row major로 행렬을 계산한다.(행 순)
+- OpenGl은 column major로 행렬을 계산한다.(열 순)
+- DirectX에서 전치(transpose : shader로 보낼때 사용되는 순서)가 opengl의 행렬이 된다.
+   - directx의 world matrix를 scale  rotation  translation  순으로 곱한다면 (SRT)
+   - opengl은 world matrix를 traslation rotation scale 순으로 곱한다 (TRS) 
+- 뷰 투영행렬도 반대 오더를 따른다
+   - directx가 Object world  view projection 의 순서라면
+   - opengl은 projection view world Object  순이다.
+
 <br><br><br><br><br><br>
 
